@@ -134,6 +134,8 @@ def build_dialsort_onnx(
         ),
     )
 
+    model.ir_version = 13
+
     checker.check_model(model)
 
     # La inferencia de formas es util para inspeccion con Netron/ORT.
