@@ -1,4 +1,0 @@
-"C:\Program Files\JetBrains\CLion 2026.1\bin\cmake\win\x64\bin\cmake.exe" -DCMAKE_BUILD_TYPE=Debug -G "MinGW Makefiles" -S C:\Users\Usuario\Documents\Code\C++\dsort -B C:\Users\Usuario\Documents\Code\C++\dsort\cmake-build-debug
--- Configuring done (0.1s)
--- Generating done (0.1s)
--- Build files have been written to: C:/Users/Usuario/Documents/Code/C++/dsort/cmake-build-debug

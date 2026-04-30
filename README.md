@@ -1,1 +1,1 @@
-# Npu assisted dialsort
+# Neural dialsort
