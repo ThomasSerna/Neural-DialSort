@@ -65,23 +65,23 @@ void dialsort::validateInput(
     int64_t u
 ) const {
     if (n <= 0) {
-        throw std::runtime_error("n debe ser positivo.");
+        throw std::runtime_error("n must be positive.");
     }
 
     if (u <= 0) {
-        throw std::runtime_error("u debe ser positivo.");
+        throw std::runtime_error("u must be positive.");
     }
 
     if (u > MAX_U_COUNTING) {
         throw std::runtime_error(
-            "u excede el dominio del DialSort nativo por conteo. u=" +
+            "u exceeds the native counting DialSort domain. u=" +
             std::to_string(u) + ", max=" + std::to_string(MAX_U_COUNTING)
         );
     }
 
     if (static_cast<int64_t>(input.size()) != n) {
         throw std::runtime_error(
-            "El tamano del vector no coincide con n. size=" +
+            "Input size does not match n. size=" +
             std::to_string(input.size()) + ", n=" + std::to_string(n)
         );
     }
@@ -90,7 +90,7 @@ void dialsort::validateInput(
         minValue > 0 &&
         u - 1 > std::numeric_limits<int64_t>::max() - minValue
     ) {
-        throw std::runtime_error("El rango [minValue, minValue + u - 1] desborda int64_t.");
+        throw std::runtime_error("Range [minValue, minValue + u - 1] overflows int64_t.");
     }
 
     const int64_t low = minValue;
@@ -99,7 +99,7 @@ void dialsort::validateInput(
     for (int64_t value : input) {
         if (value < low || value > high) {
             throw std::runtime_error(
-                "Valor fuera del rango permitido [" +
+                "Value outside allowed range [" +
                 std::to_string(low) + ", " + std::to_string(high) +
                 "]: " + std::to_string(value)
             );
@@ -119,11 +119,11 @@ std::vector<int64_t> dialsort::projectHistogramToSortedVector(
         const int64_t count = histogram[i];
 
         if (count < 0) {
-            throw std::runtime_error("El histograma tiene un conteo negativo.");
+            throw std::runtime_error("Histogram contains a negative count.");
         }
 
         if (position + count > expectedN) {
-            throw std::runtime_error("La suma del histograma excede n.");
+            throw std::runtime_error("Histogram sum exceeds n.");
         }
 
         const int64_t value = minValue + static_cast<int64_t>(i);
@@ -138,7 +138,7 @@ std::vector<int64_t> dialsort::projectHistogramToSortedVector(
     }
 
     if (position != expectedN) {
-        throw std::runtime_error("La suma del histograma no coincide con n.");
+        throw std::runtime_error("Histogram sum does not match n.");
     }
 
     return sortedVector;

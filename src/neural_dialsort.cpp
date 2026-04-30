@@ -39,7 +39,7 @@ namespace {
         );
 
         if (wideSize <= 0) {
-            throw std::runtime_error("No se pudo convertir la ruta del modelo a UTF-16.");
+            throw std::runtime_error("Could not convert model path to UTF-16.");
         }
 
         std::wstring result(static_cast<size_t>(wideSize), L'\0');
@@ -54,7 +54,7 @@ namespace {
         );
 
         if (converted <= 0) {
-            throw std::runtime_error("Fallo la conversion de la ruta del modelo a UTF-16.");
+            throw std::runtime_error("Model path conversion to UTF-16 failed.");
         }
 
         return result;
@@ -71,7 +71,7 @@ neural_dialsort::neural_dialsort(
       env(ORT_LOGGING_LEVEL_WARNING, "neural_dialsort")
 {
     if (intraOpThreads <= 0) {
-        throw std::runtime_error("intraOpThreads debe ser positivo.");
+        throw std::runtime_error("intraOpThreads must be positive.");
     }
 
     sessionOptions.SetIntraOpNumThreads(intraOpThreads);
@@ -89,8 +89,8 @@ sort_result_dto neural_dialsort::sort(
 
     if (!std::filesystem::exists(modelPath)) {
         throw std::runtime_error(
-            "No existe el modelo esperado: " + modelPath +
-            ". El modelo debe llamarse dialsort_U" + std::to_string(u) + ".onnx"
+            "Expected model does not exist: " + modelPath +
+            ". The model must be named dialsort_U" + std::to_string(u) + ".onnx"
         );
     }
 
@@ -134,15 +134,15 @@ sort_result_dto neural_dialsort::sort(
     );
 
     if (outputs.empty()) {
-        throw std::runtime_error("El modelo ONNX no produjo ninguna salida.");
+        throw std::runtime_error("The ONNX model did not produce any output.");
     }
 
     const int64_t histogramSize = getHistogramSize(outputs[0]);
 
     if (histogramSize != u) {
         throw std::runtime_error(
-            "El histograma del modelo tiene U=" + std::to_string(histogramSize) +
-            ", pero sort recibio u=" + std::to_string(u)
+            "Model histogram has U=" + std::to_string(histogramSize) +
+            ", but sort received u=" + std::to_string(u)
         );
     }
 
@@ -176,16 +176,16 @@ void neural_dialsort::validateInput(
     int64_t u
 ) const {
     if (n <= 0) {
-        throw std::runtime_error("n debe ser positivo.");
+        throw std::runtime_error("n must be positive.");
     }
 
     if (u <= 0) {
-        throw std::runtime_error("u debe ser positivo.");
+        throw std::runtime_error("u must be positive.");
     }
 
     if (static_cast<int64_t>(input.size()) != n) {
         throw std::runtime_error(
-            "El tamano del vector no coincide con n. size=" +
+            "Input size does not match n. size=" +
             std::to_string(input.size()) + ", n=" + std::to_string(n)
         );
     }
@@ -196,7 +196,7 @@ void neural_dialsort::validateInput(
     for (int64_t value : input) {
         if (value < low || value > high) {
             throw std::runtime_error(
-                "Valor fuera del rango permitido [" +
+                "Value outside allowed range [" +
                 std::to_string(low) + ", " + std::to_string(high) +
                 "]: " + std::to_string(value)
             );
@@ -209,7 +209,7 @@ int64_t neural_dialsort::getHistogramSize(const Ort::Value& outputTensor) const 
     std::vector<int64_t> shape = info.GetShape();
 
     if (shape.size() != 1 || shape[0] <= 0) {
-        throw std::runtime_error("La salida del modelo debe ser un tensor 1D: histogram[U].");
+        throw std::runtime_error("Model output must be a 1D tensor: histogram[U].");
     }
 
     return shape[0];
@@ -221,7 +221,7 @@ std::vector<int64_t> neural_dialsort::projectHistogramToSortedVector(
     int64_t expectedN
 ) const {
     if (histogram == nullptr) {
-        throw std::runtime_error("histogram es nullptr.");
+        throw std::runtime_error("histogram is nullptr.");
     }
 
     std::vector<int64_t> sortedVector(static_cast<size_t>(expectedN));
@@ -232,11 +232,11 @@ std::vector<int64_t> neural_dialsort::projectHistogramToSortedVector(
         const int64_t count = histogram[i];
 
         if (count < 0) {
-            throw std::runtime_error("El histograma tiene un conteo negativo.");
+            throw std::runtime_error("Histogram contains a negative count.");
         }
 
         if (position + count > expectedN) {
-            throw std::runtime_error("La suma del histograma excede n.");
+            throw std::runtime_error("Histogram sum exceeds n.");
         }
 
         const int64_t value = minValue + i;
@@ -251,7 +251,7 @@ std::vector<int64_t> neural_dialsort::projectHistogramToSortedVector(
     }
 
     if (position != expectedN) {
-        throw std::runtime_error("La suma del histograma no coincide con n.");
+        throw std::runtime_error("Histogram sum does not match n.");
     }
 
     return sortedVector;

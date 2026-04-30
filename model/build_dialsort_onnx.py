@@ -28,13 +28,13 @@ def build_dialsort_onnx(
 ) -> onnx.ModelProto:
 
     if universe_size <= 0:
-        raise ValueError("universe_size debe ser mayor que 0")
+        raise ValueError("universe_size must be greater than 0")
     if n <= 0 and not dynamic_n:
-        raise ValueError("n debe ser mayor que 0 cuando dynamic_n=False")
+        raise ValueError("n must be greater than 0 when dynamic_n=False")
     if opset < 16:
-        raise ValueError("Usa opset >= 16 para reduction='add' en ScatterElements/ScatterND")
+        raise ValueError("Use opset >= 16 for reduction='add' in ScatterElements/ScatterND")
     if mode not in ("scatter_elements", "scatter_nd"):
-        raise ValueError("mode debe ser 'scatter_elements' o 'scatter_nd'")
+        raise ValueError("mode must be 'scatter_elements' or 'scatter_nd'")
 
     input_shape: list[int | str] = ["N"] if dynamic_n else [n]
 
@@ -160,7 +160,7 @@ def verify_model(model_path: str | Path, *, n: int, universe_size: int, min_valu
         import onnxruntime as ort
     except ImportError as exc:
         raise RuntimeError(
-            "onnxruntime no esta instalado."
+            "onnxruntime is not installed."
         ) from exc
 
     rng = np.random.default_rng(20260321)
@@ -180,15 +180,15 @@ def verify_model(model_path: str | Path, *, n: int, universe_size: int, min_valu
     ).astype(np.int64)
 
     if not np.array_equal(histogram, expected_histogram):
-        raise AssertionError("El histograma ONNX no coincide con np.bincount")
+        raise AssertionError("ONNX histogram does not match np.bincount")
 
     projected = project_histogram(histogram, min_value=min_value)
     expected_sorted = np.sort(keys)
 
     if not np.array_equal(projected, expected_sorted):
-        raise AssertionError("La proyeccion H -> arreglo ordenado no coincide con np.sort")
+        raise AssertionError("H -> sorted array projection does not match np.sort")
 
-    print("OK: modelo verificado")
+    print("OK: model verified")
     print(f"  model      : {model_path}")
     print(f"  N          : {n}")
     print(f"  U          : {universe_size}")
@@ -200,43 +200,43 @@ def verify_model(model_path: str | Path, *, n: int, universe_size: int, min_valu
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Genera un modelo ONNX determinista para DialSort por auto-indexacion."
+        description="Generate a deterministic ONNX model for DialSort by self-indexing."
     )
-    parser.add_argument("--n", type=int, default=8, help="Longitud fija de entrada N")
-    parser.add_argument("--u", type=int, default=6, help="Tamano del universo U")
+    parser.add_argument("--n", type=int, default=8, help="Fixed input length N")
+    parser.add_argument("--u", type=int, default=6, help="Universe size U")
     parser.add_argument(
         "--min-value",
         type=int,
         default=0,
-        help="Valor minimo del universo; el indice usado es k - min_value",
+        help="Minimum universe value; the index used is k - min_value",
     )
     parser.add_argument(
         "--out",
         type=str,
         default="dialsort_autoindex.onnx",
-        help="Ruta de salida del modelo ONNX",
+        help="Output path for the ONNX model",
     )
     parser.add_argument(
         "--opset",
         type=int,
         default=18,
-        help="Version del opset ONNX. Recomendado: 18",
+        help="ONNX opset version. Recommended: 18",
     )
     parser.add_argument(
         "--dynamic-n",
         action="store_true",
-        help="Usa dimension simbolica N en vez de una longitud fija",
+        help="Use symbolic dimension N instead of a fixed length",
     )
     parser.add_argument(
         "--mode",
         choices=["scatter_elements", "scatter_nd"],
         default="scatter_elements",
-        help="Operador ONNX para acumulacion aditiva",
+        help="ONNX operator for additive accumulation",
     )
     parser.add_argument(
         "--verify",
         action="store_true",
-        help="Ejecuta una prueba con onnxruntime despues de generar el modelo",
+        help="Run an onnxruntime test after generating the model",
     )
     return parser.parse_args()
 
@@ -254,10 +254,10 @@ def main() -> None:
         mode=args.mode,
     )
 
-    print(f"Modelo ONNX generado: {args.out}")
-    print("Entrada : keys:int64[N]")
-    print(f"Salida  : histogram:int64[{args.u}]")
-    print("Operacion codificada: histogram[keys[i] - min_value] += 1")
+    print(f"Generated ONNX model: {args.out}")
+    print("Input   : keys:int64[N]")
+    print(f"Output  : histogram:int64[{args.u}]")
+    print("Encoded operation: histogram[keys[i] - min_value] += 1")
 
     if args.verify:
         verify_model(args.out, n=args.n, universe_size=args.u, min_value=args.min_value)
