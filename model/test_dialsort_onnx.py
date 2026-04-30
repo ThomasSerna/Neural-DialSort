@@ -1,29 +1,3 @@
-#!/usr/bin/env python3
-"""
-test_dialsort_onnx.py
-
-Tester para modelos ONNX de DialSort generados por build_dialsort_onnx.py.
-
-Flujo:
-    1. Carga el modelo ONNX.
-    2. Recibe un arreglo desordenado.
-    3. Ejecuta el modelo para producir el histograma H.
-    4. Proyecta H al vector verdaderamente ordenado.
-    5. Comprueba:
-        - que H coincide con np.bincount
-        - que el vector proyectado coincide con sorted(input)
-        - que el vector proyectado está no decreciente
-
-Instalación:
-    pip install onnx onnxruntime numpy
-
-Ejemplo:
-    python test_dialsort_onnx.py --model dialsort_u6_n8.onnx --array "3,1,3,5,1,3,5,3"
-
-Ejemplo generando datos aleatorios:
-    python test_dialsort_onnx.py --model dialsort_u65536_n1M.onnx --random-n 1000000 --seed 123
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -38,12 +12,6 @@ import onnxruntime as ort
 
 
 def read_initializer_scalar(model: onnx.ModelProto, name: str, default: int | None = None) -> int:
-    """
-    Lee un initializer escalar int64 del modelo ONNX.
-
-    El generador build_dialsort_onnx.py guarda min_value como initializer.
-    Si el modelo no lo tiene, se puede pasar --min-value manualmente.
-    """
     for initializer in model.graph.initializer:
         if initializer.name == name:
             arr = onnx.numpy_helper.to_array(initializer)
@@ -59,12 +27,6 @@ def read_initializer_scalar(model: onnx.ModelProto, name: str, default: int | No
 
 
 def infer_histogram_size(model: onnx.ModelProto) -> int | None:
-    """
-    Intenta inferir U desde la primera salida del modelo.
-
-    Para el modelo generado, la salida esperada es:
-        histogram: int64[U]
-    """
     if not model.graph.output:
         return None
 
@@ -84,13 +46,6 @@ def infer_histogram_size(model: onnx.ModelProto) -> int | None:
 
 
 def parse_array(text: str) -> np.ndarray:
-    """
-    Convierte strings como:
-        "3,1,3,5"
-        "[3, 1, 3, 5]"
-        "3 1 3 5"
-    en np.ndarray int64.
-    """
     text = text.strip()
 
     if not text:
@@ -109,13 +64,6 @@ def parse_array(text: str) -> np.ndarray:
 
 
 def project_histogram(histogram: np.ndarray, min_value: int) -> np.ndarray:
-    """
-    Proyección DialSort:
-        for k in 0..U-1:
-            emitir k + min_value exactamente H[k] veces
-
-    Esta es la segunda fase del algoritmo: H -> vector ordenado.
-    """
     histogram = np.asarray(histogram, dtype=np.int64)
 
     if histogram.ndim != 1:
@@ -129,19 +77,12 @@ def project_histogram(histogram: np.ndarray, min_value: int) -> np.ndarray:
 
 
 def is_non_decreasing(values: np.ndarray) -> bool:
-    """True si values[i] <= values[i+1] para todo i."""
     if values.size <= 1:
         return True
     return bool(np.all(values[:-1] <= values[1:]))
 
 
 def run_model(model_path: str | Path, keys: np.ndarray) -> tuple[np.ndarray, str, str]:
-    """
-    Ejecuta el ONNX con ONNX Runtime.
-
-    Retorna:
-        histogram, input_name, output_name
-    """
     session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
 
     input_name = session.get_inputs()[0].name
@@ -154,7 +95,6 @@ def run_model(model_path: str | Path, keys: np.ndarray) -> tuple[np.ndarray, str
 
 
 def validate_input_range(keys: np.ndarray, min_value: int, universe_size: int) -> None:
-    """Valida el contrato: min_value <= key < min_value + U."""
     if keys.ndim != 1:
         raise ValueError(f"El arreglo de entrada debe ser 1D, pero llegó con forma {keys.shape}.")
 
@@ -176,7 +116,6 @@ def validate_input_range(keys: np.ndarray, min_value: int, universe_size: int) -
 
 
 def build_keys_from_args(args: argparse.Namespace, *, min_value: int, universe_size: int) -> np.ndarray:
-    """Construye el arreglo de prueba a partir de --array o --random-n."""
     if args.array is not None:
         return parse_array(args.array)
 
@@ -206,7 +145,6 @@ def build_keys_from_args(args: argparse.Namespace, *, min_value: int, universe_s
 
 
 def compact_array(values: np.ndarray, limit: int = 64) -> str:
-    """Representación compacta para imprimir arreglos grandes."""
     values = np.asarray(values)
     if values.size <= limit:
         return str(values.tolist())
@@ -336,9 +274,6 @@ def main() -> None:
     if not all_ok:
         print("\nResultado: ERROR")
         raise SystemExit(1)
-
-    print("\nResultado: OK, el modelo codifica correctamente la ingesta DialSort y la proyección queda ordenada.")
-
 
 if __name__ == "__main__":
     main()

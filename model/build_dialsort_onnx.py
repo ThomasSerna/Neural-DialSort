@@ -1,35 +1,3 @@
-"""
-build_dialsort_onnx.py
-
-Genera un modelo ONNX determinista que implementa la fase central de DialSort:
-
-    H[k - min_value] += 1
-
-El modelo NO aprende pesos. Codifica la auto-indexacion como un grafo tensorial exacto.
-La salida principal es el histograma canonico H. La proyeccion H -> arreglo ordenado se
-incluye como funcion auxiliar en Python para validacion y uso fuera de ONNX.
-
-Instalacion:
-    pip install onnx onnxruntime numpy
-
-Ejemplo:
-    python build_dialsort_onnx.py --n 8 --u 6 --min-value 0 --out dialsort_u6_n8.onnx --verify
-
-Entrada del modelo:
-    keys: int64[N]
-
-Salida del modelo:
-    histogram: int64[U]
-
-Contrato de entrada:
-    min_value <= keys[i] < min_value + U
-
-Notas:
-    - Este grafo representa la ingestion de DialSort, no el benchmark completo.
-    - La reconstruccion del arreglo ordenado desde H se hace fuera de ONNX para mantener
-      la representacion fiel al paper: H es el estado ordenado canonico.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -45,7 +13,6 @@ ScatterMode = Literal["scatter_elements", "scatter_nd"]
 
 
 def _tensor(name: str, dtype: int, dims: list[int] | list[str] | tuple, vals: list[int]):
-    """Crea un TensorProto pequeño para usar como initializer o atributo."""
     return helper.make_tensor(name=name, data_type=dtype, dims=list(dims), vals=vals)
 
 
@@ -59,31 +26,7 @@ def build_dialsort_onnx(
     dynamic_n: bool = False,
     mode: ScatterMode = "scatter_elements",
 ) -> onnx.ModelProto:
-    """
-    Construye y guarda un modelo ONNX para la fase de ingestion de DialSort.
 
-    Grafo conceptual:
-        zero_based_keys = keys - min_value
-        zeros = ConstantOfShape([U], value=0)
-        ones  = ConstantOfShape(Shape(keys), value=1)
-        histogram = Scatter*(zeros, zero_based_keys, ones, reduction="add")
-
-    Equivalente al codigo C++:
-        vector<int64_t> H(U, 0);
-        for (auto k : keys) H[k - min_value]++;
-
-    Args:
-        n: Longitud fija de entrada. Ignorado como forma fija si dynamic_n=True.
-        universe_size: U, numero de celdas del histograma.
-        min_value: Valor minimo del universo. El indice real es k - min_value.
-        output_path: Ruta del .onnx generado.
-        opset: Version del opset ONNX. Se recomienda >= 16; por defecto 18.
-        dynamic_n: Si True, la entrada usa dimension simbolica "N".
-        mode: "scatter_elements" o "scatter_nd".
-
-    Returns:
-        ModelProto generado.
-    """
     if universe_size <= 0:
         raise ValueError("universe_size debe ser mayor que 0")
     if n <= 0 and not dynamic_n:
@@ -198,8 +141,6 @@ def build_dialsort_onnx(
         model = onnx.shape_inference.infer_shapes(model)
         checker.check_model(model)
     except Exception:
-        # Algunas instalaciones viejas de ONNX fallan en inferencia de forma con Scatter*.
-        # El modelo ya fue validado antes, asi que no abortamos.
         pass
 
     output_path = Path(output_path)
@@ -209,25 +150,17 @@ def build_dialsort_onnx(
 
 
 def project_histogram(histogram: np.ndarray, min_value: int = 0) -> np.ndarray:
-    """
-    Proyeccion DialSort: escanea H[0..U-1] y emite k exactamente H[k] veces.
-
-    Esta funcion representa la segunda fase del C++ oficial:
-        for y in 0..U-1:
-            emit y + min_value, H[y] veces
-    """
     histogram = np.asarray(histogram, dtype=np.int64)
     values = np.arange(min_value, min_value + histogram.shape[0], dtype=np.int64)
     return np.repeat(values, histogram)
 
 
 def verify_model(model_path: str | Path, *, n: int, universe_size: int, min_value: int) -> None:
-    """Verifica el modelo con ONNX Runtime contra np.bincount y np.sort."""
     try:
         import onnxruntime as ort
     except ImportError as exc:
         raise RuntimeError(
-            "onnxruntime no esta instalado. Instala con: pip install onnxruntime"
+            "onnxruntime no esta instalado."
         ) from exc
 
     rng = np.random.default_rng(20260321)
