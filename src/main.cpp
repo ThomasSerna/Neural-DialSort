@@ -2,7 +2,6 @@
 #include "../include/dialsort.h"
 #include "../include/neural_dialsort.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>

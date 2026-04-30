@@ -1,3 +1,7 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "../include/neural_dialsort.h"
 
 #include <algorithm>
@@ -6,16 +10,10 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <onnxruntime_cxx_api.h>
-
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <windows.h>
-#endif
 
 namespace {
     double elapsed_ms(
@@ -25,48 +23,44 @@ namespace {
         return std::chrono::duration<double, std::milli>(end - start).count();
     }
 
-#ifdef _WIN32
     std::wstring utf8_to_wide(const std::string& text) {
         if (text.empty()) {
             return std::wstring();
         }
 
-        int size_needed = MultiByteToWideChar(
+        const int inputSize = static_cast<int>(text.size());
+        const int wideSize = MultiByteToWideChar(
             CP_UTF8,
             0,
             text.c_str(),
-            static_cast<int>(text.size()),
+            inputSize,
             nullptr,
             0
         );
 
-        if (size_needed <= 0) {
+        if (wideSize <= 0) {
             throw std::runtime_error("No se pudo convertir la ruta del modelo a UTF-16.");
         }
 
-        std::wstring result(size_needed, L'\0');
+        std::wstring result(static_cast<size_t>(wideSize), L'\0');
 
-        int converted = MultiByteToWideChar(
+        const int converted = MultiByteToWideChar(
             CP_UTF8,
             0,
             text.c_str(),
-            static_cast<int>(text.size()),
+            inputSize,
             result.data(),
-            size_needed
+            wideSize
         );
 
         if (converted <= 0) {
-            throw std::runtime_error("Falló la conversión de la ruta del modelo a UTF-16.");
+            throw std::runtime_error("Fallo la conversion de la ruta del modelo a UTF-16.");
         }
 
         return result;
     }
-#endif
 }
 
-// Constructor.
-// Recomendado:
-//   neural_dialsort sorter("model", 0, 8);
 neural_dialsort::neural_dialsort(
     const std::string& modelDirectory,
     int64_t minValue,
@@ -84,9 +78,6 @@ neural_dialsort::neural_dialsort(
     sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 }
 
-// Método principal.
-// Hace:
-//   input desordenado -> ONNX histogram -> proyección H -> vector ordenado
 sort_result_dto neural_dialsort::sort(
     const std::vector<int64_t>& unsortedArray,
     int64_t n,
@@ -105,12 +96,8 @@ sort_result_dto neural_dialsort::sort(
 
     auto start = std::chrono::high_resolution_clock::now();
 
-#ifdef _WIN32
-    std::wstring wideModelPath = utf8_to_wide(modelPath);
+    const std::wstring wideModelPath = utf8_to_wide(modelPath);
     Ort::Session session(env, wideModelPath.c_str(), sessionOptions);
-#else
-    Ort::Session session(env, modelPath.c_str(), sessionOptions);
-#endif
 
     Ort::AllocatorWithDefaultOptions allocator;
 
@@ -122,8 +109,6 @@ sort_result_dto neural_dialsort::sort(
 
     std::vector<const char*> inputNames = {inputName};
     std::vector<const char*> outputNames = {outputName};
-
-    // Como todos los modelos son dynamic-n, se usa el n recibido en runtime.
     std::vector<int64_t> inputShape = {n};
 
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(
@@ -157,7 +142,7 @@ sort_result_dto neural_dialsort::sort(
     if (histogramSize != u) {
         throw std::runtime_error(
             "El histograma del modelo tiene U=" + std::to_string(histogramSize) +
-            ", pero sort recibió u=" + std::to_string(u)
+            ", pero sort recibio u=" + std::to_string(u)
         );
     }
 
@@ -200,7 +185,7 @@ void neural_dialsort::validateInput(
 
     if (static_cast<int64_t>(input.size()) != n) {
         throw std::runtime_error(
-            "El tamaño del vector no coincide con n. size=" +
+            "El tamano del vector no coincide con n. size=" +
             std::to_string(input.size()) + ", n=" + std::to_string(n)
         );
     }
