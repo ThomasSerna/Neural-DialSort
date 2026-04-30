@@ -10,7 +10,14 @@ if(NOT ONNXRUNTIME_DIR)
     message(FATAL_ERROR "Debes pasar -DONNXRUNTIME_DIR=/ruta/a/onnxruntime")
 endif()
 
-add_executable(neuralDialsort src/main.cpp)
+add_executable(neuralDialsort src/main.cpp
+        src/neural_dialsort.cpp
+        src/dialsort.cpp
+
+        include/dto/sort_result_dto.h
+        include/dialsort.h
+        include/neural_dialsort.h
+)
 
 target_include_directories(
         neuralDialsort
