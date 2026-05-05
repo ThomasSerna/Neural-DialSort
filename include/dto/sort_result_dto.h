@@ -17,7 +17,7 @@ struct sort_result_dto {
     crow::json::wvalue toJson() const {
         crow::json::wvalue json;
 
-        json["sortedVector"] = sortedVector;
+        // json["sortedVector"] = sortedVector;
         json["algorithmUsed"] = algorithmUsed;
         json["n"] = n;
         json["u"] = u;

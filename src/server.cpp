@@ -46,6 +46,13 @@ void server::run(int port) {
 }
 
 void server::setUpRoutes() {
+    crow::mustache::set_global_base("../templates");
+
+    CROW_ROUTE(app, "/")([]() {
+        auto page = crow::mustache::load("index.html");
+        return page.render();
+    });
+
     CROW_ROUTE(app, "/health")([] {
         return "ok";
     });
