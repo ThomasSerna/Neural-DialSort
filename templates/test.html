@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test n dinamico - Neural DialSort</title>
+  <style>
+    :root {
+      --bg: #040914;
+      --panel: #0b1426;
+      --line: #1e365b;
+      --text: #eaf3ff;
+      --muted: #89a6cf;
+      --blue: #66b2ff;
+      --purple: #b597ff;
+      --green: #6bf5b0;
+      --red: #ff8b8b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #030711 0%, var(--bg) 100%);
+    }
+    main {
+      width: min(980px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+    .panel {
+      border: 1px solid #122543;
+      border-radius: 16px;
+      background: rgba(6, 10, 20, .82);
+      padding: 20px;
+    }
+    h1 { margin: 0 0 6px; font-size: 1.6rem; }
+    p { margin: 0; color: var(--muted); }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    input, select, button {
+      width: 100%;
+      border: 1px solid #254267;
+      border-radius: 10px;
+      background: #12203a;
+      color: var(--text);
+      padding: 10px 12px;
+      font: inherit;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 700;
+      background: linear-gradient(180deg, #1a3160, #0f2147);
+    }
+    button:disabled { opacity: .65; cursor: wait; }
+    .status {
+      min-height: 22px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .status.ok { color: var(--green); }
+    .status.error { color: var(--red); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #102543;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      color: var(--muted);
+      background: #08192c;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .classic { color: var(--blue); font-weight: 700; }
+    .neural { color: var(--purple); font-weight: 700; }
+    .small { color: var(--muted); font-size: 13px; }
+    .table-wrap { overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel">
+      <h1>Test n dinamico</h1>
+      <p>Compara DialSort clasico y Neural DialSort usando el valor de n que quieras.</p>
+    </section>
+
+    <section class="panel">
+      <div class="controls">
+        <div>
+          <label for="n">n</label>
+          <input id="n" type="number" min="1" step="1" value="10000" />
+        </div>
+        <div>
+          <label for="u">U</label>
+          <input id="u" type="number" min="2" step="1" value="256" />
+        </div>
+        <div>
+          <label for="distribution">Distribucion</label>
+          <select id="distribution">
+            <option value="uniform">uniform</option>
+            <option value="skewed">skewed</option>
+            <option value="sorted">sorted</option>
+            <option value="reverse">reverse</option>
+          </select>
+        </div>
+        <div>
+          <button id="run" type="button">Comparar</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div id="status" class="status">Listo.</div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Algoritmo</th>
+              <th>Tiempo</th>
+              <th>Throughput</th>
+              <th>n</th>
+              <th>U</th>
+              <th>OK</th>
+            </tr>
+          </thead>
+          <tbody id="results">
+            <tr>
+              <td colspan="6" class="small">Ejecuta una comparacion para ver resultados.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API = {
+      base: (window.location.protocol === 'http:' || window.location.protocol === 'https:')
+        ? window.location.origin
+        : 'http://localhost:8080',
+      compare: () => `${API.base}/compare`,
+    };
+
+    const els = {
+      n: document.getElementById('n'),
+      u: document.getElementById('u'),
+      distribution: document.getElementById('distribution'),
+      run: document.getElementById('run'),
+      status: document.getElementById('status'),
+      results: document.getElementById('results'),
+    };
+
+    function setStatus(message, kind = '') {
+      els.status.className = `status ${kind}`;
+      els.status.textContent = message;
+    }
+
+    function readConfig() {
+      const n = Math.max(1, Number.parseInt(els.n.value, 10) || 1);
+      const u = Math.max(2, Number.parseInt(els.u.value, 10) || 2);
+      els.n.value = String(n);
+      els.u.value = String(u);
+      return { n, u, distribution: els.distribution.value };
+    }
+
+    function formatMs(value) {
+      return `${Number(value || 0).toFixed(3)} ms`;
+    }
+
+    function formatThroughput(result) {
+      if (!result || !result.elapsedMs) return '-';
+      return `${(result.n / result.elapsedMs / 1000).toFixed(2)} M/s`;
+    }
+
+    function rowFor(result) {
+      const isNeural = result.algorithmUsed === 'neural_dialsort';
+      return `
+        <tr>
+          <td class="${isNeural ? 'neural' : 'classic'}">${result.algorithmUsed}</td>
+          <td>${formatMs(result.elapsedMs)}</td>
+          <td>${formatThroughput(result)}</td>
+          <td>${result.n}</td>
+          <td>${result.u}</td>
+          <td>${result.success ? 'si' : 'no'}</td>
+        </tr>
+      `;
+    }
+
+    els.run.addEventListener('click', async () => {
+      const cfg = readConfig();
+      els.run.disabled = true;
+      setStatus(`Ejecutando /compare con n=${cfg.n}, U=${cfg.u}, dist=${cfg.distribution}...`);
+      try {
+        const response = await fetch(API.compare(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cfg),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Error ejecutando /compare');
+        const results = Array.isArray(data) ? data : Object.values(data);
+        els.results.innerHTML = results.map(rowFor).join('');
+        setStatus('Comparacion completada.', 'ok');
+      } catch (error) {
+        els.results.innerHTML = `<tr><td colspan="6" class="small">Sin resultados.</td></tr>`;
+        setStatus(error.message, 'error');
+      } finally {
+        els.run.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

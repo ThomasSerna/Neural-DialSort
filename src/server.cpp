@@ -53,6 +53,11 @@ void server::setUpRoutes() {
         return page.render();
     });
 
+    CROW_ROUTE(app, "/test")([]() {
+        auto page = crow::mustache::load("test.html");
+        return page.render();
+    });
+
     CROW_ROUTE(app, "/health")([] {
         return "ok";
     });
