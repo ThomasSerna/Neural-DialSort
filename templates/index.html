@@ -182,10 +182,9 @@
       .visual-grid, .visual-grid.compact { grid-template-columns: 1fr; }
     }
     .visual-layout {
-      display: grid; grid-template-columns: 1.28fr .72fr;
+      display: grid; grid-template-columns: 1fr;
       gap: 16px; align-items: start;
     }
-    @media (max-width: 1180px) { .visual-layout { grid-template-columns: 1fr; } }
     .field label {
       display: block; color: var(--muted-2); font-size: 12px;
       text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px;
@@ -213,7 +212,8 @@
       display: inline-block;
     }
     .steps {
-      display: grid; gap: 8px; max-height: 360px;
+      display: grid; gap: 8px; max-height: 260px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       overflow: auto; padding-right: 4px;
     }
     .step {
@@ -620,7 +620,7 @@
           </div>
         </div>
         <div class="svg-wrap">
-          <svg id="visualSvg" viewBox="0 0 1400 780" role="img" aria-label="Visualización de DialSort"></svg>
+          <svg id="visualSvg" viewBox="0 0 1400 900" role="img" aria-label="Visualización de DialSort"></svg>
         </div>
         <div class="legend" style="margin-top: 12px;">
           <span class="legend-item"><span class="legend-dot" style="background:var(--blue)"></span>valor activo</span>
@@ -1089,15 +1089,71 @@ function buildNormalTimeline(vector, u) {
 
 function buildNeuralTimeline(vector, u) {
   const hist = Array(u).fill(0);
-  vector.forEach(v => hist[v]++);
+  const timeline = [{
+    phase: 'Input tensor',
+    title: 'keys[N] + zeros[U] + ones[N]',
+    hist: hist.slice(),
+    output: [],
+    activeIndex: -1,
+    stage: 'input',
+    text: 'El vector entra como tensor int64 keys[N]. El grafo ONNX crea un histograma en cero y un tensor ones[N] para sumar una unidad por clave.',
+  }];
+
+  vector.forEach((value, index) => {
+    hist[value]++;
+    timeline.push({
+      phase: 'Scatter ONNX',
+      title: `key[${index}]=${value} -> H[${value}] += 1`,
+      hist: hist.slice(),
+      output: [],
+      activeIndex: index,
+      activeValue: value,
+      histDeltaKey: value,
+      stage: 'scatter',
+      text: `La clave ${value} no se compara: se interpreta como direccion. ScatterElements/ScatterND suma 1 en H[${value}].`,
+    });
+  });
+
   const output = [];
-  for (let k = 0; k < u; k++) for (let c = 0; c < hist[k]; c++) output.push(k);
-  return [
-    { phase: 'Input tensor', title: 'Tensor de entrada', hist: Array(u).fill(0), output: [], matrix: false, text: 'El vector se entrega como tensor int64 de forma [n] al modelo ONNX.' },
-    { phase: 'Activación', title: 'Self-indexing / scatter', hist: Array(u).fill(0), output: [], matrix: true, text: 'Cada clave activa su posición canónica. Visualmente equivale a una matriz one-hot o scatter donde key=k suma sobre la fila k.' },
-    { phase: 'Histograma tensor', title: 'Salida del modelo: histogram[U]', hist: hist.slice(), output: [], matrix: true, text: 'El modelo produce el histograma H[0..U-1]. Esta es la representación ordenada implícita.' },
-    { phase: 'Proyección C++', title: 'projectHistogramToSortedVector', hist: hist.slice(), output: output.slice(), matrix: false, text: 'Después de ONNX, C++ escanea H desde 0 hasta U-1 y reconstruye el sortedVector para el DTO.' },
-  ];
+
+  timeline.push({
+    phase: 'Histograma tensor',
+    title: 'Salida ONNX: histogram[U]',
+    hist: hist.slice(),
+    output: [],
+    activeIndex: -1,
+    stage: 'histogram',
+    text: 'El modelo termina con histogram[U]. Ese tensor ya contiene el orden implicito: los indices bajos se proyectan antes que los altos.',
+  });
+
+  for (let k = 0; k < u; k++) {
+    for (let c = 0; c < hist[k]; c++) output.push(k);
+    timeline.push({
+      phase: 'Proyeccion C++',
+      title: `leer H[${k}] = ${hist[k]}`,
+      hist: hist.slice(),
+      output: output.slice(),
+      activeIndex: -1,
+      scanKey: k,
+      stage: 'projection',
+      text: hist[k] > 0
+        ? `C++ lee H[${k}] y emite el valor ${k} exactamente ${hist[k]} vez/veces en sortedVector.`
+        : `C++ lee H[${k}], no encuentra ocurrencias y avanza al siguiente indice.`,
+    });
+  }
+
+  timeline.push({
+    phase: 'Final',
+    title: 'sortedVector listo',
+    hist: hist.slice(),
+    output: output.slice(),
+    activeIndex: -1,
+    scanKey: -1,
+    stage: 'final',
+    text: 'La simulacion queda detenida en el resultado final. El vector ordenado es la proyeccion lineal del histograma ONNX.',
+  });
+
+  return timeline;
 }
 
 function renderVisual() {
@@ -1110,6 +1166,9 @@ function renderVisual() {
     ? 'DialSort clásico · ingesta y proyección'
     : 'Neural DialSort · tensor ONNX e histograma';
   byId('visualExplanation').textContent = step.text || '';
+  // Adjust SVG viewBox depending on mode (neural needs taller canvas)
+  const svg = byId('visualSvg');
+  svg.setAttribute('viewBox', mode === 'neural' ? '0 0 1400 1060' : '0 0 1400 900');
   renderVisualSteps();
   if (mode === 'neural') renderNeuralSvg(step);
   else renderNormalSvg(step);
@@ -1122,8 +1181,15 @@ function renderVisualSteps() {
 }
 
 function visualStep() {
-  visualState.step = (visualState.step + 1) % visualState.timeline.length;
+  if (!visualState.timeline.length) return;
+  if (visualState.step >= visualState.timeline.length - 1) {
+    stopVisualAuto();
+    renderVisual();
+    return;
+  }
+  visualState.step += 1;
   renderVisual();
+  if (visualState.step >= visualState.timeline.length - 1) stopVisualAuto();
 }
 
 function toggleVisualAuto() {
@@ -1132,6 +1198,10 @@ function toggleVisualAuto() {
     return;
   }
   byId('btnAutoVisual').textContent = '⏸ Pausar';
+  if (visualState.step >= visualState.timeline.length - 1) {
+    visualState.step = 0;
+    renderVisual();
+  }
   const speed = toInt(byId('visualSpeed').value, 550);
   visualState.timer = setInterval(visualStep, speed);
 }
@@ -1178,26 +1248,197 @@ function renderNeuralSvg(step) {
   const hist = step.hist || Array(u).fill(0);
   const output = step.output || [];
   const parts = [];
-  svgBg(parts, 'Neural DialSort: tensor de entrada → histograma ONNX → proyección');
-  drawInputVector(parts, vector, 70, 72, 1260, -1);
-  const layerY = 190;
-  const layers = [
-    { x: 110, title: 'Input tensor [n]', sub: 'int64 keys' },
-    { x: 410, title: 'Self-indexing', sub: 'scatter / one-hot' },
-    { x: 710, title: 'Histogram[U]', sub: 'salida ONNX' },
-    { x: 1010, title: 'Projection C++', sub: 'sortedVector' },
-  ];
-  layers.forEach((l, idx) => {
-    const active = idx === visualState.step || (visualState.step >= 2 && idx === 2) || (visualState.step === 3 && idx === 3);
-    parts.push(rect(l.x, layerY, 240, 96, active ? 'rgba(83,199,255,.22)' : 'rgba(15,43,64,.75)', active ? '#53c7ff' : '#2a4f69', 20, 2));
-    parts.push(text(l.x + 120, layerY + 38, l.title, 18, '#edf8ff', 900));
-    parts.push(text(l.x + 120, layerY + 66, l.sub, 13, '#9fc2d7', 700));
-    if (idx < layers.length - 1) parts.push(line(l.x + 248, layerY + 48, l.x + 292, layerY + 48, '#53c7ff', 4));
-  });
-  if (step.matrix) drawActivationMatrix(parts, vector, u, 120, 340, 1160, 250);
-  else drawHistogramCompact(parts, hist, 120, 345, 1160, 225);
-  drawOutput(parts, output, 70, 635, 1260, 'Vector devuelto por el DTO');
+  // Neural mode needs more vertical room — use a taller viewBox
+  svgBgNeural(parts, 'Neural DialSort: keys[N] → scatter add → histogram[U] → sortedVector');
+  // Y positions with generous spacing
+  const Y_INPUT    = 85;   // input vector cells top
+  const Y_PIPELINE = 185;  // pipeline row
+  const Y_UPDATE   = 310;  // state info row
+  const Y_HIST     = 450;  // histogram section top
+  const HIST_H     = 320;  // histogram height
+  const Y_OUTPUT   = Y_HIST + HIST_H + 72; // output section
+  drawInputVector(parts, vector, 70, Y_INPUT, 1260, step.activeIndex);
+  drawNeuralPipeline(parts, step, 95, Y_PIPELINE, 1210);
+  drawNeuralUpdate(parts, step, hist, 95, Y_UPDATE, 1210);
+  drawNeuralHistogram(parts, hist, 70, Y_HIST, 1260, HIST_H, step.histDeltaKey, step.scanKey);
+  drawOutput(parts, output, 70, Y_OUTPUT, 1260, 'Vector ordenado proyectado desde H[k]');
   byId('visualSvg').innerHTML = parts.join('');
+}
+
+function drawNeuralPipeline(parts, step, x, y, w) {
+  const nodes = [
+    { key: 'input',      title: 'keys[N]',        sub: 'tensor int64' },
+    { key: 'scatter',    title: 'Scatter add',     sub: 'H[key] += 1' },
+    { key: 'histogram',  title: 'histogram[U]',    sub: 'salida ONNX' },
+    { key: 'projection', title: 'Proyección C++',  sub: 'sortedVector' },
+  ];
+  const nodeH = 90;
+  const nodeW = 240;
+  const gap = (w - nodeW * nodes.length) / (nodes.length - 1);
+  nodes.forEach((node, idx) => {
+    const nx = x + idx * (nodeW + gap);
+    const active = node.key === step.stage || (step.stage === 'final' && node.key === 'projection');
+    const fill   = active ? 'rgba(181,151,255,.22)' : 'rgba(15,43,64,.76)';
+    const stroke = active ? '#b597ff' : '#2a4f69';
+    parts.push(rect(nx, y, nodeW, nodeH, fill, stroke, 18, active ? 2 : 1));
+    // Icon circle
+    parts.push(`<circle cx="${nx + 28}" cy="${y + 30}" r="10" fill="${active ? '#b597ff33' : '#1e3a5233'}" stroke="${active ? '#b597ff' : '#2a4f69'}" stroke-width="1.5"/>`);
+    parts.push(text(nx + 28, y + 35, String(idx + 1), 11, active ? '#d8caff' : '#7a9cbf', 700));
+    parts.push(text(nx + nodeW / 2 + 8, y + 36, node.title, 16, '#edf8ff', 800));
+    parts.push(text(nx + nodeW / 2 + 8, y + 57, node.sub, 12, active ? '#d8caff' : '#9fc2d7', 600));
+    // Arrow connector
+    if (idx < nodes.length - 1) {
+      const ax1 = nx + nodeW + 8;
+      const ax2 = nx + nodeW + gap - 8;
+      const ay  = y + nodeH / 2;
+      parts.push(line(ax1, ay, ax2, ay, active ? '#b597ffaa' : '#2a4f6988', 2));
+      parts.push(text((ax1 + ax2) / 2, ay + 5, '›', 16, active ? '#b597ff' : '#2a4f69', 900));
+    }
+  });
+}
+
+function drawNeuralUpdate(parts, step, hist, x, y, w) {
+  parts.push(rect(x, y, w, 100, 'rgba(6,18,30,.82)', '#1e365b', 18, 1));
+  if (step.stage === 'scatter') {
+    const value = step.activeValue;
+    const index = step.activeIndex;
+    const current = hist[value] || 0;
+    const cellW = 226;
+    const gap = 26;
+    const sx = x + (w - (cellW * 4 + gap * 3)) / 2;
+    const cells = [
+      { label: `key[${index}]`, value: String(value), fill: '#53c7ff', stroke: '#b9efff', fg: '#02131e' },
+      { label: 'dirección', value: `H[${value}]`, fill: 'rgba(181,151,255,.28)', stroke: '#b597ff', fg: '#edf8ff' },
+      { label: 'suma', value: '+1', fill: 'rgba(181,151,255,.28)', stroke: '#b597ff', fg: '#edf8ff' },
+      { label: 'conteo nuevo', value: String(current), fill: 'rgba(98,242,168,.2)', stroke: '#62f2a8', fg: '#eaffff' },
+    ];
+    cells.forEach((c, i) => {
+      const cx = sx + i * (cellW + gap);
+      parts.push(rect(cx, y + 14, cellW, 60, c.fill, c.stroke, 14, 2));
+      parts.push(text(cx + 10, y + 32, c.label, 11, c.fg, 600, 'start'));
+      parts.push(text(cx + cellW / 2, y + 64, c.value, 22, c.fg, 900));
+      if (i < cells.length - 1) parts.push(text(cx + cellW + gap / 2, y + 54, '→', 20, '#b597ff', 900));
+    });
+    return;
+  }
+
+  const lineA = y + 44;
+  const lineB = y + 75;
+
+  if (step.stage === 'projection') {
+    const k = step.scanKey;
+    const count = hist[k] || 0;
+    parts.push(text(x + 34, lineA, `scan k = ${k}`, 17, '#ffc857', 700, 'start'));
+    parts.push(text(x + 220, lineA, `H[${k}] = ${count}`, 17, '#62f2a8', 700, 'start'));
+    parts.push(text(x + 400, lineA, count > 0 ? `→  emitir ${k}  ×${count}` : '→  sin valores emitidos', 17, '#edf8ff', 600, 'start'));
+    parts.push(text(x + w - 24, lineA, 'Proyección C++', 13, '#9fc2d7', 600, 'end'));
+    parts.push(line(x + 24, lineB - 8, x + w - 24, lineB - 8, '#ffc85744', 1));
+    parts.push(text(x + 34, lineB, 'Lee H[k] sin comparar — emite k exactamente H[k] veces al sortedVector', 13, '#7a9cbf', 500, 'start'));
+    return;
+  }
+
+  if (step.stage === 'histogram') {
+    parts.push(text(x + 34, lineA, 'Salida ONNX:', 17, '#d8caff', 700, 'start'));
+    parts.push(text(x + 185, lineA, 'histogram[U]', 19, '#62f2a8', 900, 'start'));
+    parts.push(text(x + 380, lineA, '— estado ordenado canónico, listo para C++', 15, '#9fc2d7', 500, 'start'));
+    parts.push(line(x + 24, lineB - 8, x + w - 24, lineB - 8, '#62f2a844', 1));
+    parts.push(text(x + 34, lineB, 'Los índices bajos del histograma se proyectan antes que los altos — sin comparaciones', 13, '#7a9cbf', 500, 'start'));
+    return;
+  }
+
+  if (step.stage === 'final') {
+    parts.push(text(x + 34, lineA, 'Estado final:', 17, '#ffc857', 700, 'start'));
+    parts.push(text(x + 195, lineA, 'sortedVector completo', 17, '#edf8ff', 700, 'start'));
+    parts.push(text(x + w - 24, lineA, '✓ detenido', 14, '#62f2a8', 700, 'end'));
+    parts.push(line(x + 24, lineB - 8, x + w - 24, lineB - 8, '#ffc85744', 1));
+    parts.push(text(x + 34, lineB, 'Construido leyendo H[0..U-1] de izquierda a derecha — orden revelado, no comparado', 13, '#7a9cbf', 500, 'start'));
+    return;
+  }
+
+  // default: 'input' stage
+  parts.push(text(x + 34, lineA, 'ONNX inicializa:', 17, '#9fc2d7', 700, 'start'));
+  parts.push(text(x + 220, lineA, 'zeros[U]', 17, '#62f2a8', 800, 'start'));
+  parts.push(text(x + 360, lineA, '+', 17, '#9fc2d7', 400));
+  parts.push(text(x + 400, lineA, 'ones[N]', 17, '#b597ff', 800, 'start'));
+  parts.push(text(x + w - 24, lineA, 'antes del scatter-add', 13, '#9fc2d7', 500, 'end'));
+  parts.push(line(x + 24, lineB - 8, x + w - 24, lineB - 8, '#2a4f6944', 1));
+  parts.push(text(x + 34, lineB, 'Sin comparaciones de magnitud en ningún punto de la ingesta', 13, '#7a9cbf', 500, 'start'));
+}
+
+function drawNeuralHistogram(parts, hist, x, y, w, h, activeKey, scanKey) {
+  const u = hist.length;
+  const maxH = Math.max(1, ...hist);
+  // Section title with clear separation
+  parts.push(text(x + w / 2, y - 16, 'Histograma H[k]  —  producido por ONNX Runtime', 19, '#dff6ff', 800));
+
+  const gap = 8;
+  const barW = Math.max(20, Math.min(64, (w - gap * (u - 1)) / u));
+  const total = barW * u + gap * (u - 1);
+  const sx = x + (w - total) / 2;
+
+  // Reserve space: top 28px for count labels, bottom 28px for key labels
+  const LABEL_TOP = 28;
+  const LABEL_BOT = 28;
+  const trackH = h - LABEL_TOP - LABEL_BOT;
+  const trackY = y + LABEL_TOP;
+  const baseY  = trackY + trackH;
+
+  for (let k = 0; k < u; k++) {
+    const bx = sx + k * (barW + gap);
+    const isActive = activeKey === k;
+    const isScan   = scanKey   === k;
+
+    const bhRaw = hist[k] / maxH * (trackH - 4);
+    const bh    = hist[k] > 0 ? Math.max(12, bhRaw) : 0;
+    const barY  = baseY - bh;
+
+    const stroke = isActive ? '#66b2ff' : isScan ? '#ffc857' : '#2a4f69';
+    const sw     = isActive || isScan ? 2 : 1;
+
+    // Track background
+    parts.push(rect(bx, trackY, barW, trackH, 'rgba(255,255,255,.025)', stroke, 10, sw));
+
+    // Bar fill
+    if (bh > 0) {
+      const barFill = isActive
+        ? 'url(#gradActive)'
+        : isScan
+          ? 'url(#gradScan)'
+          : '#62f2a8';
+      const barStroke = isActive ? '#9affcf' : isScan ? '#ffe083' : '#9affcf';
+      parts.push(rect(bx + 3, barY, barW - 6, bh, barFill, barStroke, 8, 1));
+    }
+
+    // Count label — above the track, always visible
+    const countColor = isActive ? '#66b2ff' : isScan ? '#ffc857' : '#eaffff';
+    parts.push(text(bx + barW / 2, trackY - 6, String(hist[k]), 13, countColor, 800));
+
+    // Key label — below the track
+    parts.push(text(bx + barW / 2, baseY + 22, String(k), 12, '#9fc2d7', 700));
+
+    // Active indicator: arrow inside bar top area
+    if (isActive && bh > 0) {
+      const arrowY = Math.min(barY + 16, trackY + 20);
+      parts.push(text(bx + barW / 2, arrowY, '+1', 14, '#66b2ff', 900));
+    } else if (isActive) {
+      parts.push(text(bx + barW / 2, trackY + 18, '+1', 14, '#66b2ff', 900));
+    }
+
+    // Scan indicator: small label inside track
+    if (isScan) {
+      parts.push(text(bx + barW / 2, trackY + 14, '▼', 12, '#ffc857', 900));
+    }
+  }
+
+  // Gradient defs injected into the parts once (they'll be part of SVG inner HTML)
+  parts.unshift(`<defs>
+    <linearGradient id="gradActive" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4d9fff"/><stop offset="1" stop-color="#1a5fd0"/>
+    </linearGradient>
+    <linearGradient id="gradScan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe083"/><stop offset="1" stop-color="#e6a800"/>
+    </linearGradient>
+  </defs>`);
 }
 
 function drawInputVector(parts, vector, x, y, w, activeIndex) {
@@ -1265,10 +1506,17 @@ function drawHistogramCompact(parts, hist, x, y, w, h) {
   }
 }
 
+function svgBgNeural(parts, title) {
+  parts.push(`<defs><linearGradient id="visual-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#082237"/><stop offset="1" stop-color="#04121e"/></linearGradient></defs>`);
+  parts.push(rect(0, 0, 1400, 1060, 'url(#visual-bg)', 'none', 0));
+  parts.push(`<g opacity=".12">${Array.from({ length: 30 }, (_, i) => line(40 + i * 46, 20, 40 + i * 46, 1040, '#7fcfff', 1)).join('')}${Array.from({ length: 24 }, (_, i) => line(20, 50 + i * 44, 1380, 50 + i * 44, '#7fcfff', 1)).join('')}</g>`);
+  parts.push(text(700, 42, title, 20, '#edf8ff', 800));
+}
+
 function svgBg(parts, title) {
   parts.push(`<defs><linearGradient id="visual-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#082237"/><stop offset="1" stop-color="#04121e"/></linearGradient></defs>`);
-  parts.push(rect(0, 0, 1400, 780, 'url(#visual-bg)', 'none', 0));
-  parts.push(`<g opacity=".16">${Array.from({ length: 30 }, (_, i) => line(40 + i * 46, 20, 40 + i * 46, 760, '#7fcfff', 1)).join('')}${Array.from({ length: 16 }, (_, i) => line(20, 50 + i * 44, 1380, 50 + i * 44, '#7fcfff', 1)).join('')}</g>`);
+  parts.push(rect(0, 0, 1400, 900, 'url(#visual-bg)', 'none', 0));
+  parts.push(`<g opacity=".16">${Array.from({ length: 30 }, (_, i) => line(40 + i * 46, 20, 40 + i * 46, 880, '#7fcfff', 1)).join('')}${Array.from({ length: 20 }, (_, i) => line(20, 50 + i * 44, 1380, 50 + i * 44, '#7fcfff', 1)).join('')}</g>`);
   parts.push(text(700, 38, title, 22, '#edf8ff', 900));
 }
 
