@@ -65,10 +65,9 @@ neural_dialsort::neural_dialsort(
     const std::string& modelDirectory,
     int64_t minValue,
     int intraOpThreads
-)
-    : modelDir(modelDirectory),
-      minValue(minValue),
-      env(ORT_LOGGING_LEVEL_WARNING, "neural_dialsort")
+):  modelDir(modelDirectory),
+    minValue(minValue),
+    env(ORT_LOGGING_LEVEL_WARNING, "neural_dialsort")
 {
     if (intraOpThreads <= 0) {
         throw std::runtime_error("intraOpThreads must be positive.");

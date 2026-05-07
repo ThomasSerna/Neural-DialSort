@@ -1222,22 +1222,7 @@ function renderNormalSvg(step) {
   svgBg(parts, 'DialSort clásico: H[value]++ y escaneo geométrico');
   drawInputVector(parts, vector, 70, 90, 1260, step.activeIndex);
   parts.push(text(700, 205, step.title || '', 28, '#ffe083', 900));
-  const barArea = { x: 80, y: 285, w: 1240, h: 270 };
-  parts.push(text(700, 260, 'Histograma H[k] — estado ordenado canónico', 20, '#dff6ff', 800));
-  const gap = 8;
-  const barW = Math.max(18, Math.min(58, (barArea.w - gap * (u - 1)) / u));
-  const totalW = barW * u + gap * (u - 1);
-  const startX = barArea.x + (barArea.w - totalW) / 2;
-  for (let k = 0; k < u; k++) {
-    const h = hist[k] / maxH * 190;
-    const x = startX + k * (barW + gap);
-    const y = barArea.y + 210 - h;
-    const active = step.activeValue === k || step.scanKey === k;
-    parts.push(rect(x, barArea.y, barW, 210, 'rgba(255,255,255,.025)', 'rgba(125,180,205,.18)', 12));
-    parts.push(rect(x, y, barW, h, active ? '#ffe083' : '#62f2a8', active ? '#fff3bd' : '#9affcf', 12));
-    parts.push(text(x + barW / 2, y - 10, String(hist[k]), 14, '#eaffff', 800));
-    parts.push(text(x + barW / 2, barArea.y + 238, String(k), 13, '#9fc2d7', 700));
-  }
+  drawEnhancedHistogram(parts, hist, 70, 275, 1260, 280, step.activeValue, step.scanKey, 'Histograma H[k] — estado ordenado canónico');
   drawOutput(parts, output, 70, 625, 1260, 'Salida proyectada hasta este paso');
   byId('visualSvg').innerHTML = parts.join('');
 }
@@ -1260,7 +1245,7 @@ function renderNeuralSvg(step) {
   drawInputVector(parts, vector, 70, Y_INPUT, 1260, step.activeIndex);
   drawNeuralPipeline(parts, step, 95, Y_PIPELINE, 1210);
   drawNeuralUpdate(parts, step, hist, 95, Y_UPDATE, 1210);
-  drawNeuralHistogram(parts, hist, 70, Y_HIST, 1260, HIST_H, step.histDeltaKey, step.scanKey);
+  drawEnhancedHistogram(parts, hist, 70, Y_HIST, 1260, HIST_H, step.histDeltaKey, step.scanKey, 'Histograma H[k]  —  producido por ONNX Runtime');
   drawOutput(parts, output, 70, Y_OUTPUT, 1260, 'Vector ordenado proyectado desde H[k]');
   byId('visualSvg').innerHTML = parts.join('');
 }
@@ -1365,11 +1350,11 @@ function drawNeuralUpdate(parts, step, hist, x, y, w) {
   parts.push(text(x + 34, lineB, 'Sin comparaciones de magnitud en ningún punto de la ingesta', 13, '#7a9cbf', 500, 'start'));
 }
 
-function drawNeuralHistogram(parts, hist, x, y, w, h, activeKey, scanKey) {
+function drawEnhancedHistogram(parts, hist, x, y, w, h, activeKey, scanKey, title) {
   const u = hist.length;
   const maxH = Math.max(1, ...hist);
   // Section title with clear separation
-  parts.push(text(x + w / 2, y - 16, 'Histograma H[k]  —  producido por ONNX Runtime', 19, '#dff6ff', 800));
+  parts.push(text(x + w / 2, y - 16, title, 19, '#dff6ff', 800));
 
   const gap = 8;
   const barW = Math.max(20, Math.min(64, (w - gap * (u - 1)) / u));
