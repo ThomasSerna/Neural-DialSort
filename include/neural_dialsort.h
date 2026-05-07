@@ -3,20 +3,48 @@
 #include "dto/sort_result_dto.h"
 
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <onnxruntime_cxx_api.h>
 
 class neural_dialsort {
 private:
+    struct cached_model_session {
+        Ort::Session session;
+        std::string inputName;
+        std::string outputName;
+        int64_t histogramSize;
+
+        cached_model_session(
+            Ort::Session&& session,
+            std::string inputName,
+            std::string outputName,
+            int64_t histogramSize
+        ):  session(std::move(session)),
+            inputName(std::move(inputName)),
+            outputName(std::move(outputName)),
+            histogramSize(histogramSize)
+        {
+        }
+    };
+
     std::string modelDir;
     int64_t minValue;
 
     Ort::Env env;
     Ort::SessionOptions sessionOptions;
+    std::mutex cacheMutex;
+    std::unordered_map<int64_t, std::unique_ptr<cached_model_session>> sessionCache;
 
     std::string buildModelPath(int64_t u) const;
+
+    cached_model_session& getOrCreateSession(int64_t u);
+    std::unique_ptr<cached_model_session> loadSession(int64_t u);
 
     void validateInput(
         const std::vector<int64_t>& input,
@@ -24,7 +52,8 @@ private:
         int64_t u
     ) const;
 
-    int64_t getHistogramSize(const Ort::Value& outputTensor) const;
+    int64_t getModelHistogramSize(const Ort::Session& session) const;
+    int64_t getHistogramSize(const std::vector<int64_t>& shape) const;
 
     std::vector<int64_t> projectHistogramToSortedVector(
         const int64_t* histogram,

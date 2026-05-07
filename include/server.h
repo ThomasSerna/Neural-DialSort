@@ -2,6 +2,7 @@
 #define NEURAL_DIALSORT_SERVER_H
 
 #include "crow_all.h"
+#include "sorter.h"
 
 class server {
 public:
@@ -9,6 +10,7 @@ public:
 
 private:
     crow::SimpleApp app;
+    sorter sortService;
 
     void setUpRoutes();
 };

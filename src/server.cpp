@@ -1,7 +1,6 @@
 #include "../include/server.h"
 
 #include "../include/dto/sort_request_dto.h"
-#include "../include/sorter.h"
 
 #include <exception>
 #include <stdexcept>
@@ -71,15 +70,14 @@ void server::setUpRoutes() {
     });
 
     CROW_ROUTE(app, "/sort").methods(crow::HTTPMethod::Post)(
-        [](const crow::request& request) -> crow::response {
+        [this](const crow::request& request) -> crow::response {
             try {
                 const char* algorithmParam = request.url_params.get("algorithm");
                 std::string algorithm = algorithmParam ? algorithmParam : "normal";
                 sort_request_dto sortRequest = parse_sort_request(request);
-                sorter sorter;
 
-                if (algorithm == sorter.neuralSortName || algorithm == sorter.normalSortName) {
-                    sort_result_dto result = sorter.sort(sortRequest, algorithm);
+                if (algorithm == sortService.neuralSortName || algorithm == sortService.normalSortName) {
+                    sort_result_dto result = sortService.sort(sortRequest, algorithm);
                     return json_response(200, result.toJson());
                 }
 
@@ -91,11 +89,10 @@ void server::setUpRoutes() {
     );
 
     CROW_ROUTE(app, "/compare").methods(crow::HTTPMethod::Post)(
-        [](const crow::request& request) -> crow::response {
+        [this](const crow::request& request) -> crow::response {
             try {
                 sort_request_dto sortRequest = parse_sort_request(request);
-                sorter sorter;
-                std::vector<sort_result_dto> results = sorter.compare(sortRequest);
+                std::vector<sort_result_dto> results = sortService.compare(sortRequest);
 
                 crow::json::wvalue response;
                 for (size_t i = 0; i < results.size(); ++i) {

@@ -1,16 +1,19 @@
 #include "../include/sorter.h"
 
-#include "../include/dialsort.h"
-#include "../include/neural_dialsort.h"
-
 #include <algorithm>
 #include <random>
 #include <stdexcept>
 
+sorter::sorter()
+    : normalSorter(MIN_VALUE),
+      neuralSorter(MODEL_DIRECTORY, MIN_VALUE, INTRA_OP_THREADS)
+{
+}
+
 sort_result_dto sorter::sort(
     const sort_request_dto& request,
     const std::string& algorithm
-) const {
+) {
     const std::vector<int64_t> values = generateData(request);
 
     if (algorithm == neuralSortName) {
@@ -24,7 +27,7 @@ sort_result_dto sorter::sort(
     throw std::runtime_error("algorithm must be normal or neural.");
 }
 
-std::vector<sort_result_dto> sorter::compare(const sort_request_dto& request) const {
+std::vector<sort_result_dto> sorter::compare(const sort_request_dto& request) {
     const std::vector<int64_t> values = generateData(request);
 
     std::vector<sort_result_dto> results;
@@ -105,11 +108,9 @@ std::vector<int64_t> sorter::generateReverse(int64_t n, int64_t u) const {
 }
 
 sort_result_dto sorter::sortNormal(const std::vector<int64_t>& values, int64_t u) const {
-    dialsort normalSorter(MIN_VALUE);
     return normalSorter.sort(values, static_cast<int64_t>(values.size()), u);
 }
 
-sort_result_dto sorter::sortNeural(const std::vector<int64_t>& values, int64_t u) const {
-    neural_dialsort neuralSorter(MODEL_DIRECTORY, MIN_VALUE, INTRA_OP_THREADS);
+sort_result_dto sorter::sortNeural(const std::vector<int64_t>& values, int64_t u) {
     return neuralSorter.sort(values, static_cast<int64_t>(values.size()), u);
 }

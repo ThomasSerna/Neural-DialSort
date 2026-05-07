@@ -5,6 +5,7 @@
 #include "../include/neural_dialsort.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -84,31 +85,12 @@ sort_result_dto neural_dialsort::sort(
 ) {
     validateInput(unsortedArray, n, u);
 
-    const std::string modelPath = buildModelPath(u);
-
-    if (!std::filesystem::exists(modelPath)) {
-        throw std::runtime_error(
-            "Expected model does not exist: " + modelPath +
-            ". The model must be named dialsort_U" + std::to_string(u) + ".onnx"
-        );
-    }
-
     auto start = std::chrono::high_resolution_clock::now();
 
-    const std::wstring wideModelPath = utf8_to_wide(modelPath);
-    Ort::Session session(env, wideModelPath.c_str(), sessionOptions);
-
-    Ort::AllocatorWithDefaultOptions allocator;
-
-    auto inputNameAllocated = session.GetInputNameAllocated(0, allocator);
-    auto outputNameAllocated = session.GetOutputNameAllocated(0, allocator);
-
-    const char* inputName = inputNameAllocated.get();
-    const char* outputName = outputNameAllocated.get();
-
-    std::vector<const char*> inputNames = {inputName};
-    std::vector<const char*> outputNames = {outputName};
-    std::vector<int64_t> inputShape = {n};
+    cached_model_session& modelSession = getOrCreateSession(u);
+    const char* inputNames[] = {modelSession.inputName.c_str()};
+    const char* outputNames[] = {modelSession.outputName.c_str()};
+    std::array<int64_t, 1> inputShape = {n};
 
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(
         OrtArenaAllocator,
@@ -123,12 +105,12 @@ sort_result_dto neural_dialsort::sort(
         inputShape.size()
     );
 
-    std::vector<Ort::Value> outputs = session.Run(
+    std::vector<Ort::Value> outputs = modelSession.session.Run(
         Ort::RunOptions{nullptr},
-        inputNames.data(),
+        inputNames,
         &inputTensor,
         1,
-        outputNames.data(),
+        outputNames,
         1
     );
 
@@ -136,19 +118,10 @@ sort_result_dto neural_dialsort::sort(
         throw std::runtime_error("The ONNX model did not produce any output.");
     }
 
-    const int64_t histogramSize = getHistogramSize(outputs[0]);
-
-    if (histogramSize != u) {
-        throw std::runtime_error(
-            "Model histogram has U=" + std::to_string(histogramSize) +
-            ", but sort received u=" + std::to_string(u)
-        );
-    }
-
     const int64_t* histogram = outputs[0].GetTensorData<int64_t>();
 
     std::vector<int64_t> sortedVector =
-        projectHistogramToSortedVector(histogram, histogramSize, n);
+        projectHistogramToSortedVector(histogram, modelSession.histogramSize, n);
 
     auto end = std::chrono::high_resolution_clock::now();
 
@@ -167,6 +140,56 @@ sort_result_dto neural_dialsort::sort(
 
 std::string neural_dialsort::buildModelPath(int64_t u) const {
     return modelDir + "/dialsort_U" + std::to_string(u) + ".onnx";
+}
+
+neural_dialsort::cached_model_session& neural_dialsort::getOrCreateSession(int64_t u) {
+    std::lock_guard<std::mutex> lock(cacheMutex);
+
+    const auto existing = sessionCache.find(u);
+    if (existing != sessionCache.end()) {
+        return *existing->second;
+    }
+
+    std::unique_ptr<cached_model_session> loadedSession = loadSession(u);
+    cached_model_session& sessionRef = *loadedSession;
+    sessionCache.emplace(u, std::move(loadedSession));
+
+    return sessionRef;
+}
+
+std::unique_ptr<neural_dialsort::cached_model_session> neural_dialsort::loadSession(int64_t u) {
+    const std::string modelPath = buildModelPath(u);
+
+    if (!std::filesystem::exists(modelPath)) {
+        throw std::runtime_error(
+            "Expected model does not exist: " + modelPath +
+            ". The model must be named dialsort_U" + std::to_string(u) + ".onnx"
+        );
+    }
+
+    const std::wstring wideModelPath = utf8_to_wide(modelPath);
+    Ort::Session session(env, wideModelPath.c_str(), sessionOptions);
+
+    Ort::AllocatorWithDefaultOptions allocator;
+
+    auto inputNameAllocated = session.GetInputNameAllocated(0, allocator);
+    auto outputNameAllocated = session.GetOutputNameAllocated(0, allocator);
+
+    const int64_t histogramSize = getModelHistogramSize(session);
+
+    if (histogramSize != u) {
+        throw std::runtime_error(
+            "Model histogram has U=" + std::to_string(histogramSize) +
+            ", but sort received u=" + std::to_string(u)
+        );
+    }
+
+    return std::make_unique<cached_model_session>(
+        std::move(session),
+        std::string(inputNameAllocated.get()),
+        std::string(outputNameAllocated.get()),
+        histogramSize
+    );
 }
 
 void neural_dialsort::validateInput(
@@ -203,10 +226,13 @@ void neural_dialsort::validateInput(
     }
 }
 
-int64_t neural_dialsort::getHistogramSize(const Ort::Value& outputTensor) const {
-    Ort::TensorTypeAndShapeInfo info = outputTensor.GetTensorTypeAndShapeInfo();
-    std::vector<int64_t> shape = info.GetShape();
+int64_t neural_dialsort::getModelHistogramSize(const Ort::Session& session) const {
+    Ort::TypeInfo outputInfo = session.GetOutputTypeInfo(0);
+    Ort::ConstTensorTypeAndShapeInfo shapeInfo = outputInfo.GetTensorTypeAndShapeInfo();
+    return getHistogramSize(shapeInfo.GetShape());
+}
 
+int64_t neural_dialsort::getHistogramSize(const std::vector<int64_t>& shape) const {
     if (shape.size() != 1 || shape[0] <= 0) {
         throw std::runtime_error("Model output must be a 1D tensor: histogram[U].");
     }
