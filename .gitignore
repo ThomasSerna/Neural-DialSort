@@ -2,6 +2,8 @@
 build/
 build-*/
 cmake-build-debug
+cmake-build-release
+cmake-build-default
 .venv
 __pycache__
-neural_dialsort/models/*.onnx
+onnx_accelerated_dialsort/models/*.onnx

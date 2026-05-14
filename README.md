@@ -1,135 +1,259 @@
-# Neural DialSort
+# 🚀 DialSort — Non-Comparative Integer Sorting via the Self-Indexing Principle
 
-This branch contains only the files needed to keep Neural DialSort as an experimental ONNX Runtime based variant of DialSort.
+> **DialSort does not compute order. It reveals it.**
 
-It does not include the previous web application, Crow server, DTOs, frontend templates, uploaded-file handling, generated ONNX binaries, or unrelated DialSort benchmark files.
+---
 
-## Contents
+## 🧠 Overview
 
-```text
-.
-|-- CMakeLists.txt
-|-- README.md
-|-- bench_neural_dialsort.cpp
-|-- docs/
-|   `-- neural-dialsort.md
-`-- neural_dialsort/
-    |-- include/
-    |   `-- neural_dialsort.h
-    |-- src/
-    |   `-- neural_dialsort.cpp
-    |-- scripts/
-    |   |-- build_dialsort_onnx.py
-    |   `-- test_dialsort_onnx.py
-    `-- models/
-        `-- README.md
+DialSort is a high-performance non-comparative sorting approach for bounded-universe integer keys.
+
+Instead of comparing elements, it leverages the **self-indexing property of integers**, where each key *k* is inherently its own position in the ordered address space.
+
+Sorting becomes:
+- Direct indexing (ingestion)
+- Local accumulation (histogram)
+- Geometric scan (order revelation)
+
+No pairwise comparisons are performed.
+
+---
+
+## ⚙️ Core Idea
+
+For keys `k ∈ [0, U-1]`:
+
+```cpp
+H[k]++;
 ```
 
-## What Neural DialSort Does
+```cpp
+for (int k = 0; k < U; k++)
+    emit k exactly H[k] times;
+```
 
-Neural DialSort models the DialSort histogram-ingestion step as an ONNX graph:
+👉 The histogram **is already the ordered state**.
+
+---
+
+## ✨ Geometric Interpretation
+
+After ingestion, the dataset is represented as a histogram `H[k]`, where each value occupies its own vertical rail.
+
+### 🔦 Abacus-and-Torch Analogy
+
+![DialSort Geometric Scan](./dialsort_abacus_torch.png)
+
+**Figure:** After ingestion, each value *k* occupies exactly `H[k]` independent rails.  
+A torch sweeps the value axis from `k = 0` to `U − 1`. Repeated values appear side-by-side at the same height.
+
+👉 The projected shadow is the sorted output.
+
+> **Order is revealed, not computed.**
+
+---
+
+## ⚡ Performance Highlights
+
+### 🔹 Parallel Benchmark — DialSort vs IPS4o
+
+- 48 configurations (N, U, distributions)
+- 8 threads vs 8 threads (fair comparison)
+
+**Results:**
+- Wins in **29 / 48 configurations**
+- Average speedup: **1.90×**
+- Best case: **4.08×**
+
+---
+
+### 🔹 vs Classic Counting Sort
+
+- Faster in **46 / 48 cases**
+- ~1.65× average speedup
+
+---
+
+### 🔹 vs ska sort
+
+- Faster in **46 / 48 cases**
+- ~3.33× average speedup
+
+---
+
+## 🧩 Cerebras WSE-3 Projection (900,000 cores)
+
+DialSort maps naturally to wafer-scale architectures:
+
+- One tile per key
+- Each tile stores `H[k]`
+- Direct routing to owner tile
+
+### Key insight:
+- Ingestion latency is bounded by hardware topology
+- No global synchronization required
+
+```
+T_total = T_transfer + O(U)
+```
+
+⚠️ **Important:** This is an *analytical projection*, not a physical implementation.
+
+---
+
+## 🔬 Complexity
+
+| Mode        | Complexity            |
+|------------|----------------------|
+| Sequential | O(n + U)             |
+| Parallel   | O(n/k + log k + U)   |
+
+---
+
+## 📌 When to Use DialSort
+
+Use DialSort when:
+- Keys are integers in a bounded range
+- `n ≫ U`
+- Distribution is uniform or skewed
+
+Avoid when:
+- `U ≫ n`
+- Input is already sorted
+
+---
+
+## 📦 Repository Contents
+
+- C++ implementations (sequential + parallel)
+- Benchmarks (DialSort vs IPS4o, ska sort, std::sort)
+- Experimental datasets
+- Interactive simulators
+- Paper (PDF)
+
+---
+
+## ⚡ Experimental: ONNX-Accelerated-DialSort
+
+This repository also includes an experimental ONNX Runtime based variant of DialSort called **ONNX-Accelerated-DialSort**.
+
+ONNX-Accelerated-DialSort models the histogram-ingestion phase of DialSort as an ONNX graph:
 
 ```text
 histogram[key - min_value] += 1
 ```
 
-The C++ wrapper executes the ONNX model, reads the histogram output, and projects that histogram back into a sorted `std::vector<int64_t>`.
+The ONNX model receives a 1D `int64` tensor of keys and returns a histogram tensor of length `U`.
+The C++ wrapper then projects that histogram back into the sorted output vector.
 
-A `NeuralDialSort` object caches ONNX Runtime sessions per universe size, so repeated benchmark calls reuse the same loaded model after warmup.
+This variant is experimental and intended for benchmarking and architecture exploration.
+It does not replace the native DialSort implementation.
 
-The public C++ interface is intentionally small:
+The ONNX benchmark is optional and is disabled by default in CMake.
 
-```cpp
-NeuralDialSort sorter;
-std::vector<int64_t> values = {3, 1, 3, 5, 1, 3};
-
-if (sorter.sort(values, 256)) {
-    // values is sorted
-}
-```
-
-Recoverable failures return `false`, for example when ONNX Runtime is unavailable, the model file is missing, dimensions do not match, or the universe is unsupported.
-
-## Build Without ONNX
-
-ONNX is disabled by default:
-
-```bash
-cmake -S . -B build
-cmake --build build
-```
-
-This verifies that the branch can configure and build without requiring ONNX Runtime.
-
-## Build The ONNX Benchmark
-
-```bash
-cmake -S . -B build-onnx -DDSORT_ENABLE_ONNX=ON -DONNXRUNTIME_DIR="/path/to/onnxruntime"
-cmake --build build-onnx --config Release
-```
-
-If your ONNX Runtime package uses a nonstandard library path, pass it explicitly:
+To enable it:
 
 ```bash
 cmake -S . -B build-onnx \
   -DDSORT_ENABLE_ONNX=ON \
-  -DONNXRUNTIME_DIR="/path/to/onnxruntime" \
-  -DDSORT_ONNXRUNTIME_LIB="/path/to/libonnxruntime.so"
+  -DONNXRUNTIME_DIR="/path/to/onnxruntime"
+
+cmake --build build-onnx --config Release
 ```
 
-## Generate A Model
-
-Install Python dependencies:
+Generate a dynamic-length ONNX model:
 
 ```bash
-pip install numpy onnx onnxruntime
-```
-
-Generate a dynamic-length model for `U=256`:
-
-```bash
-python neural_dialsort/scripts/build_dialsort_onnx.py \
+python onnx_accelerated_dialsort/scripts/build_dialsort_onnx.py \
   --u 256 \
   --dynamic-n \
-  --out neural_dialsort/models/dialsort_U256.onnx \
+  --out onnx_accelerated_dialsort/models/dialsort_U256.onnx \
   --verify
 ```
 
-Generated `.onnx` files are ignored by default.
-
-## Test A Model
+Run the benchmark:
 
 ```bash
-python neural_dialsort/scripts/test_dialsort_onnx.py \
-  --model neural_dialsort/models/dialsort_U256.onnx \
-  --array "3,1,3,5,1,3"
-```
-
-## Run The Benchmark
-
-After building with `DSORT_ENABLE_ONNX=ON`:
-
-```bash
-./build-onnx/bench_neural_dialsort
+./build-onnx/bench_onnx_accelerated_dialsort --model-dir onnx_accelerated_dialsort/models
 ```
 
 On Visual Studio generators:
 
 ```bash
-./build-onnx/Release/bench_neural_dialsort.exe
+./build-onnx/Release/bench_onnx_accelerated_dialsort.exe --model-dir onnx_accelerated_dialsort/models
 ```
 
-The benchmark compares:
+More details are available in:
 
-- `NativeCounting`, a minimal native DialSort-style counting baseline
-- `NeuralDialSort` through ONNX Runtime
-- `std::sort`
+```txt
+docs/onnx-accelerated-dialsort.md
+```
 
-`NativeCounting` is included only as a native CPU baseline. Performance parity for this branch is
-measured against the ONNX-based Neural DialSort path from `main`, not against that baseline.
+---
+## 🎮 Interactive Simulators
 
-The default benchmark includes `N=1,000,000` and `N=10,000,000`, but skips `std::sort` for those large sizes to keep total runtime practical.
+DialSort can be explored through multiple complementary visual models.  
+Each simulator highlights a different layer of the execution model:
 
-If a matching model is not present, the NeuralDialSort row is reported as skipped and the rest of the benchmark continues.
+---
 
-See [docs/neural-dialsort.md](docs/neural-dialsort.md) for the detailed design and limitations.
+### 🔷 Sovereign Dial Model — Geometric Ordering
+Visualizes the core principle of DialSort:  
+each value *is its own position* in the ordered space.
+
+👉 https://elmaestrotic.github.io/dsort/simulators/sovereign-dial/
+
+---
+
+### ✨ Luminico Model — Frequency as Illumination
+Represents frequency accumulation as light intensity along value rails.  
+Higher repetition → stronger illumination.
+
+👉 https://elmaestrotic.github.io/dsort/simulators/luminico/
+
+---
+
+### 🧠 Spatial / Cerebras Model — Parallel Execution
+Simulates a many-core architecture where each key is routed to its owning tile.  
+Demonstrates how DialSort maps naturally to massively parallel hardware.
+
+👉 https://elmaestrotic.github.io/dsort/simulators/cerebras/
+
+---
+
+### 🔥 CRN Simulator — Conflict Resolution Network
+Shows how concurrent writes are resolved without collisions.  
+Equal keys are merged through a reduction tree before reaching memory.
+
+👉 https://elmaestrotic.github.io/dsort/simulators/crn/
+
+---
+
+## 🧩 Conceptual Layers
+
+DialSort can be understood through multiple equivalent lenses:
+
+- **Geometric** → Sovereign Dial  
+- **Energetic** → Luminico  
+- **Architectural** → Spatial (Cerebras-style)  
+- **Algorithmic** → CRN  
+
+> These perspectives are not separate implementations, but different views of the same underlying execution principle.
+## 🧪 Reproducibility
+
+- Seed: `20260321`
+- Compiler: `g++ -O3 -std=c++17`
+- Parallel: `pthread` / `TBB`
+
+---
+
+## Contributions
+
+- ONNX-Accelerated-DialSort experimental ONNX variant: Thomas Serna Saldarriaga
+
+---
+
+## 👤 Author
+
+**Alexander Narváez**  
+Universidad EAFIT — Colombia
