@@ -1,4 +1,7 @@
 .idea
+build/
+build-*/
 cmake-build-debug
 .venv
 __pycache__
+neural_dialsort/models/*.onnx
