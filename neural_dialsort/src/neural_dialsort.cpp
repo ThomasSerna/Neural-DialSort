@@ -1,6 +1,7 @@
 #include "neural_dialsort.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -46,13 +47,7 @@ struct CachedSession {
     std::string input_name;
     std::string output_name;
     int64_t input_extent = -1;
-    std::mutex run_mutex;
 };
-
-bool output_shape_matches(const Ort::Value& tensor, int64_t universe_size) {
-    const auto shape = tensor.GetTensorTypeAndShapeInfo().GetShape();
-    return shape.size() == 1 && shape[0] == universe_size;
-}
 
 bool read_supported_input_extent(const Ort::Session& session, int64_t& input_extent) {
     Ort::TypeInfo input_info = session.GetInputTypeInfo(0);
@@ -93,7 +88,7 @@ bool output_is_supported(const Ort::Session& session, int64_t universe_size) {
 }
 
 bool input_values_are_supported(
-    const std::vector<int>& values,
+    const std::vector<int64_t>& values,
     int64_t min_value,
     int64_t universe_size
 ) {
@@ -108,9 +103,8 @@ bool input_values_are_supported(
     const int64_t low = min_value;
     const int64_t high = min_value + universe_size - 1;
 
-    for (int value : values) {
-        const int64_t widened = static_cast<int64_t>(value);
-        if (widened < low || widened > high) {
+    for (int64_t value : values) {
+        if (value < low || value > high) {
             return false;
         }
     }
@@ -123,46 +117,48 @@ bool project_histogram(
     int64_t histogram_size,
     int64_t min_value,
     std::size_t expected_size,
-    std::vector<int>& values
+    std::vector<int64_t>& values
 ) {
     if (histogram == nullptr || histogram_size < 0) {
         return false;
     }
 
-    std::vector<int> sorted;
-    sorted.reserve(expected_size);
+    if (expected_size != values.size()) {
+        return false;
+    }
 
+    std::size_t total = 0;
     for (int64_t i = 0; i < histogram_size; ++i) {
         const int64_t count = histogram[i];
         if (count < 0) {
             return false;
         }
 
-        const auto remaining = expected_size - sorted.size();
+        const std::size_t remaining = expected_size - total;
         if (static_cast<uint64_t>(count) > static_cast<uint64_t>(remaining)) {
             return false;
         }
 
-        const int64_t widened_value = min_value + i;
-        if (
-            widened_value < std::numeric_limits<int>::min() ||
-            widened_value > std::numeric_limits<int>::max()
-        ) {
-            return false;
-        }
-
-        sorted.insert(
-            sorted.end(),
-            static_cast<std::size_t>(count),
-            static_cast<int>(widened_value)
-        );
+        total += static_cast<std::size_t>(count);
     }
 
-    if (sorted.size() != expected_size || !std::is_sorted(sorted.begin(), sorted.end())) {
+    if (total != expected_size) {
         return false;
     }
 
-    values = std::move(sorted);
+    std::size_t position = 0;
+    for (int64_t i = 0; i < histogram_size; ++i) {
+        const auto count = static_cast<std::size_t>(histogram[i]);
+        const int64_t value = min_value + i;
+
+        std::fill_n(
+            values.begin() + static_cast<std::ptrdiff_t>(position),
+            count,
+            value
+        );
+        position += count;
+    }
+
     return true;
 }
 }
@@ -239,7 +235,7 @@ NeuralDialSort::NeuralDialSort(NeuralDialSort&&) noexcept = default;
 
 NeuralDialSort& NeuralDialSort::operator=(NeuralDialSort&&) noexcept = default;
 
-bool NeuralDialSort::sort(std::vector<int>& values, int64_t universe_size) {
+bool NeuralDialSort::sort(std::vector<int64_t>& values, int64_t universe_size) {
     try {
         if (!impl_) {
             return false;
@@ -264,12 +260,7 @@ bool NeuralDialSort::sort(std::vector<int>& values, int64_t universe_size) {
             return false;
         }
 
-        std::vector<int64_t> input(values.size());
-        for (std::size_t i = 0; i < values.size(); ++i) {
-            input[i] = static_cast<int64_t>(values[i]) - options.min_value;
-        }
-
-        std::vector<int64_t> input_shape = {static_cast<int64_t>(input.size())};
+        std::array<int64_t, 1> input_shape = {static_cast<int64_t>(values.size())};
 
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
             OrtArenaAllocator,
@@ -278,8 +269,8 @@ bool NeuralDialSort::sort(std::vector<int>& values, int64_t universe_size) {
 
         Ort::Value input_tensor = Ort::Value::CreateTensor<int64_t>(
             memory_info,
-            input.data(),
-            input.size(),
+            values.data(),
+            values.size(),
             input_shape.data(),
             input_shape.size()
         );
@@ -288,19 +279,16 @@ bool NeuralDialSort::sort(std::vector<int>& values, int64_t universe_size) {
         const char* output_names[] = {cached->output_name.c_str()};
 
         std::vector<Ort::Value> outputs;
-        {
-            std::lock_guard<std::mutex> lock(cached->run_mutex);
-            outputs = cached->session.Run(
-                Ort::RunOptions{nullptr},
-                input_names,
-                &input_tensor,
-                1,
-                output_names,
-                1
-            );
-        }
+        outputs = cached->session.Run(
+            Ort::RunOptions{nullptr},
+            input_names,
+            &input_tensor,
+            1,
+            output_names,
+            1
+        );
 
-        if (outputs.empty() || !output_shape_matches(outputs[0], universe_size)) {
+        if (outputs.empty()) {
             return false;
         }
 

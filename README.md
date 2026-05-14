@@ -33,7 +33,7 @@ Neural DialSort models the DialSort histogram-ingestion step as an ONNX graph:
 histogram[key - min_value] += 1
 ```
 
-The C++ wrapper executes the ONNX model, reads the histogram output, and projects that histogram back into a sorted `std::vector<int>`.
+The C++ wrapper executes the ONNX model, reads the histogram output, and projects that histogram back into a sorted `std::vector<int64_t>`.
 
 A `NeuralDialSort` object caches ONNX Runtime sessions per universe size, so repeated benchmark calls reuse the same loaded model after warmup.
 
@@ -41,7 +41,7 @@ The public C++ interface is intentionally small:
 
 ```cpp
 NeuralDialSort sorter;
-std::vector<int> values = {3, 1, 3, 5, 1, 3};
+std::vector<int64_t> values = {3, 1, 3, 5, 1, 3};
 
 if (sorter.sort(values, 256)) {
     // values is sorted
@@ -121,9 +121,14 @@ On Visual Studio generators:
 
 The benchmark compares:
 
-- a minimal native DialSort-style counting baseline
+- `NativeCounting`, a minimal native DialSort-style counting baseline
 - `NeuralDialSort` through ONNX Runtime
 - `std::sort`
+
+`NativeCounting` is included only as a native CPU baseline. Performance parity for this branch is
+measured against the ONNX-based Neural DialSort path from `main`, not against that baseline.
+
+The default benchmark includes `N=1,000,000` and `N=10,000,000`, but skips `std::sort` for those large sizes to keep total runtime practical.
 
 If a matching model is not present, the NeuralDialSort row is reported as skipped and the rest of the benchmark continues.
 

@@ -13,7 +13,7 @@ DialSort has two major phases:
 
 Neural DialSort models the ingestion phase as an ONNX graph. The graph receives a 1D `int64` tensor named `keys` and returns a 1D `int64` tensor named `histogram` with length `U`.
 
-The C++ wrapper then projects that histogram back into the caller's `std::vector<int>`.
+The C++ wrapper then projects that histogram back into the caller's `std::vector<int64_t>`.
 
 Each `NeuralDialSort` instance keeps an ONNX Runtime session cache keyed by universe size. The
 first call for a given `U` loads and validates `dialsort_U<U>.onnx`; later calls reuse that
@@ -28,7 +28,7 @@ The reusable C++ interface is intentionally small and independent of any web app
 #include "neural_dialsort.h"
 
 NeuralDialSort sorter;
-std::vector<int> values = {3, 1, 3, 5, 1, 3};
+std::vector<int64_t> values = {3, 1, 3, 5, 1, 3};
 
 if (sorter.sort(values, 256)) {
     // values is sorted
@@ -82,6 +82,18 @@ Or test random input:
 python neural_dialsort/scripts/test_dialsort_onnx.py \
   --model neural_dialsort/models/dialsort_U256.onnx \
   --random-n 10000
+```
+
+Large random model checks are supported with the same dynamic-N model:
+
+```bash
+python neural_dialsort/scripts/test_dialsort_onnx.py \
+  --model neural_dialsort/models/dialsort_U1024.onnx \
+  --random-n 1000000
+
+python neural_dialsort/scripts/test_dialsort_onnx.py \
+  --model neural_dialsort/models/dialsort_U1024.onnx \
+  --random-n 10000000
 ```
 
 The test script checks the ONNX histogram against `numpy.bincount`, projects the histogram back to a sorted vector, and compares that projection with `numpy.sort`.
@@ -140,9 +152,14 @@ On multi-config generators such as Visual Studio:
 
 The benchmark compares:
 
-- native DialSort-style counting and projection
+- `NativeCounting`, a native DialSort-style counting and projection baseline
 - NeuralDialSort through ONNX Runtime
 - `std::sort`
+
+`NativeCounting` is a native CPU baseline, not the Neural DialSort parity target. Use the
+`NeuralDialSort` rows when comparing this branch with the ONNX-based implementation from `main`.
+
+By default it runs `N=10,000`, `N=100,000`, `N=1,000,000`, and `N=10,000,000` across the configured universe sizes and distributions. The large cases are intentionally included in the default benchmark to expose whether ONNX Runtime overhead amortizes at larger input sizes. `std::sort` is skipped for `N >= 1,000,000` because it dominates the benchmark runtime.
 
 Each row validates correctness with `std::is_sorted`. If a matching model is missing or the model cannot run, the NeuralDialSort row is reported as skipped and the rest of the benchmark continues.
 
@@ -150,7 +167,8 @@ Each row validates correctness with `std::is_sorted`. If a matching model is mis
 
 - This is an experimental variant for measurement and exploration.
 - It currently expects one generated model per universe size, named `dialsort_U<U>.onnx`.
-- The current C++ wrapper expects `int64` model input and output tensors.
+- The current C++ wrapper expects `int64` model input tensors and `int64` histogram output tensors, matching the implementation from the web branch.
+- The public API accepts `std::vector<int64_t>` so the wrapper can pass caller storage directly to ONNX Runtime without widening or narrowing conversions.
 - The ONNX graph only models histogram ingestion. Projection remains ordinary C++.
 - The first call for a universe size pays the ONNX model load/session creation cost; reuse the same `NeuralDialSort` instance to benefit from the session cache.
 - ONNX Runtime is a build-time and run-time dependency only when `DSORT_ENABLE_ONNX=ON`.

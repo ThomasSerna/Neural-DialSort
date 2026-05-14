@@ -21,7 +21,7 @@ public:
     NeuralDialSort(NeuralDialSort&&) noexcept;
     NeuralDialSort& operator=(NeuralDialSort&&) noexcept;
 
-    bool sort(std::vector<int>& values, int64_t universe_size);
+    bool sort(std::vector<int64_t>& values, int64_t universe_size);
 
 private:
     struct Impl;
