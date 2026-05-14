@@ -127,28 +127,19 @@ bool project_histogram(
         return false;
     }
 
-    std::size_t total = 0;
-    for (int64_t i = 0; i < histogram_size; ++i) {
-        const int64_t count = histogram[i];
-        if (count < 0) {
-            return false;
-        }
-
-        const std::size_t remaining = expected_size - total;
-        if (static_cast<uint64_t>(count) > static_cast<uint64_t>(remaining)) {
-            return false;
-        }
-
-        total += static_cast<std::size_t>(count);
-    }
-
-    if (total != expected_size) {
-        return false;
-    }
-
     std::size_t position = 0;
+
     for (int64_t i = 0; i < histogram_size; ++i) {
-        const auto count = static_cast<std::size_t>(histogram[i]);
+        const int64_t raw_count = histogram[i];
+        if (raw_count < 0) {
+            return false;
+        }
+
+        const std::size_t count = static_cast<std::size_t>(raw_count);
+        if (count > expected_size - position) {
+            return false;
+        }
+
         const int64_t value = min_value + i;
 
         std::fill_n(
@@ -159,7 +150,7 @@ bool project_histogram(
         position += count;
     }
 
-    return true;
+    return position == expected_size;
 }
 }
 
@@ -236,6 +227,20 @@ NeuralDialSort::NeuralDialSort(NeuralDialSort&&) noexcept = default;
 NeuralDialSort& NeuralDialSort::operator=(NeuralDialSort&&) noexcept = default;
 
 bool NeuralDialSort::sort(std::vector<int64_t>& values, int64_t universe_size) {
+    if (!impl_) {
+        return false;
+    }
+
+    const NeuralDialSortOptions& options = impl_->options;
+
+    if (!input_values_are_supported(values, options.min_value, universe_size)) {
+        return false;
+    }
+
+    return sort_unchecked(values, universe_size);
+}
+
+bool NeuralDialSort::sort_unchecked(std::vector<int64_t>& values, int64_t universe_size) {
     try {
         if (!impl_) {
             return false;
@@ -243,15 +248,11 @@ bool NeuralDialSort::sort(std::vector<int64_t>& values, int64_t universe_size) {
 
         const NeuralDialSortOptions& options = impl_->options;
 
-        if (values.size() <= 1) {
-            return input_values_are_supported(values, options.min_value, universe_size);
-        }
-
-        if (options.intra_op_threads <= 0) {
+        if (options.intra_op_threads <= 0 || universe_size <= 0) {
             return false;
         }
 
-        if (!input_values_are_supported(values, options.min_value, universe_size)) {
+        if (values.size() > static_cast<std::size_t>(std::numeric_limits<int64_t>::max())) {
             return false;
         }
 

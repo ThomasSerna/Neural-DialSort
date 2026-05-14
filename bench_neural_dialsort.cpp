@@ -323,7 +323,7 @@ int main(int argc, char** argv) {
                 };
 
                 const SortFn neural_sort = [&neural, universe_size](std::vector<int64_t>& values) {
-                    return neural.sort(values, universe_size);
+                    return neural.sort_unchecked(values, universe_size);
                 };
 
                 const Row native_row = run_one(

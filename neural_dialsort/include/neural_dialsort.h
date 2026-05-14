@@ -22,6 +22,7 @@ public:
     NeuralDialSort& operator=(NeuralDialSort&&) noexcept;
 
     bool sort(std::vector<int64_t>& values, int64_t universe_size);
+    bool sort_unchecked(std::vector<int64_t>& values, int64_t universe_size);
 
 private:
     struct Impl;
