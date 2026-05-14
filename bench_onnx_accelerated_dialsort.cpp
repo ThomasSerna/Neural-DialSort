@@ -15,11 +15,24 @@
 
 namespace {
 constexpr int WARMUP_ROUNDS = 3;
-constexpr int MEASURE_ROUNDS = 3;
+constexpr int MEASURE_ROUNDS = 7;
 constexpr uint64_t SEED = 20260321ULL;
 constexpr int64_t MAX_U_COUNTING = 10'000'000;
 constexpr std::size_t STD_SORT_SKIP_N = 1'000'000;
 constexpr const char* ONNX_ACCELERATED_DIALSORT_NAME = "ONNX-Accelerated-DialSort";
+
+std::string compiler_id() {
+#if defined(__clang__)
+    return std::string("Clang ") + __clang_version__;
+#elif defined(__GNUC__)
+    return std::string("g++ ") + __VERSION__;
+#elif defined(_MSC_VER)
+    return std::string("MSVC ") + std::to_string(_MSC_VER);
+#else
+    return "unknown compiler";
+#endif
+}
+
 
 int64_t now_ns() {
     using namespace std::chrono;
@@ -186,50 +199,64 @@ Row skipped_row(
     return row;
 }
 
+static constexpr int COL_W = 109;
+
+void print_separator() {
+    std::cout << std::string(COL_W, '-') << "\n";
+}
+
 void print_header() {
     std::cout << std::left
-              << std::setw(22) << "Algorithm"
-              << std::setw(14) << "Distribution"
+              << std::setw(28) << "Algorithm"
+              << std::setw(12) << "Distribution"
               << std::setw(12) << "N"
-              << std::setw(8) << "U"
-              << std::setw(12) << "ms"
+              << std::setw(8)  << "U"
+              << std::setw(12) << "ms (best)"
               << std::setw(14) << "M keys/s"
-              << std::setw(14) << "vs std::sort"
+              << std::setw(12) << "Speedup"
               << "OK\n";
-    std::cout << std::string(96, '-') << "\n";
+    print_separator();
 }
 
 void print_row(const Row& row) {
     if (row.skipped) {
         std::cout << std::left
-                  << std::setw(22) << row.algorithm
-                  << std::setw(14) << row.distribution
+                  << std::setw(28) << row.algorithm
+                  << std::setw(12) << row.distribution
                   << std::setw(12) << row.n
-                  << std::setw(8) << row.universe_size
-                  << "SKIPPED";
+                  << std::setw(8)  << row.universe_size;
+
         if (!row.skip_reason.empty()) {
-            std::cout << " (" << row.skip_reason << ")";
+            std::cout << "[SKIPPED - " << row.skip_reason << "]";
         } else if (row.algorithm == ONNX_ACCELERATED_DIALSORT_NAME) {
-            std::cout << " (model/runtime unavailable)";
+            std::cout << "[SKIPPED - model/runtime unavailable]";
+        } else if (row.algorithm == "NativeCounting") {
+            std::cout << "[SKIPPED - U=" << row.universe_size
+                      << " > MAX_U_COUNTING=" << MAX_U_COUNTING << "]";
+        } else {
+            std::cout << "[SKIPPED]";
         }
+
         std::cout << "\n";
         return;
     }
 
     std::cout << std::left
-              << std::setw(22) << row.algorithm
-              << std::setw(14) << row.distribution
+              << std::setw(28) << row.algorithm
+              << std::setw(12) << row.distribution
               << std::setw(12) << row.n
-              << std::setw(8) << row.universe_size
+              << std::setw(8)  << row.universe_size
               << std::fixed << std::setprecision(3)
               << std::setw(12) << row.ms
               << std::setw(14) << row.mkeys_s;
+
     if (row.speedup_available) {
-        std::cout << std::setw(14) << row.speedup_vs_std_sort;
+        std::cout << std::setw(12) << row.speedup_vs_std_sort;
     } else {
-        std::cout << std::setw(14) << "n/a";
+        std::cout << std::setw(12) << "n/a";
     }
-    std::cout << (row.correct ? "OK" : "FAIL") << "\n";
+
+    std::cout << (row.correct ? "OK" : "*** FAIL ***") << "\n";
 }
 
 struct Dist {
@@ -274,10 +301,34 @@ int main(int argc, char** argv) {
         {"reverse", gen_reverse},
     };
 
-    std::cout << "ONNX-Accelerated-DialSort optional ONNX benchmark\n";
-    std::cout << "Model directory: " << args.model_dir << "\n";
-    std::cout << "Warmup rounds: " << WARMUP_ROUNDS << "\n";
-    std::cout << "Measurement rounds: best of " << MEASURE_ROUNDS << "\n\n";
+    std::cout
+            << "================================================================\n"
+            << "ONNX-Accelerated DialSort — Optional ONNX Benchmark  (Tier 1: CPU)\n"
+            << "Paper: DialSort: Non-Comparative Integer Sorting\n"
+            << "       via the Self-Indexing Principle\n"
+            << "================================================================\n"
+            << "Compiler     : " << compiler_id() << "\n"
+#ifdef NDEBUG
+            << "Build mode   : Release / NDEBUG\n"
+#else
+            << "Build mode   : Debug / no NDEBUG\n"
+#endif
+            << "Warmup       : " << WARMUP_ROUNDS << " discarded runs\n"
+            << "Measurement  : best-of-" << MEASURE_ROUNDS << " runs\n"
+            << "Seed         : " << SEED << "\n"
+            << "Clock        : std::chrono::high_resolution_clock\n"
+            << "Correctness  : std::is_sorted() verified after every sort\n"
+            << "Model dir    : " << args.model_dir << "\n"
+            << "Max U (count): " << MAX_U_COUNTING
+            << "  (~" << (MAX_U_COUNTING * sizeof(int64_t)) / (1024 * 1024)
+            << " MB histogram; NativeCounting rows skipped if U exceeds this)\n"
+            << "Note         : std::sort is skipped for N >= " << STD_SORT_SKIP_N
+            << " to keep ONNX benchmark runtime practical\n"
+            << "================================================================\n\n";
+
+    std::cout << "TABLE I - Bounded-universe sorting  "
+                 "(ONNX-Accelerated DialSort vs baselines)\n";
+    std::cout << "Each group: NativeCounting | ONNX-Accelerated-DialSort | std::sort\n\n";
 
     print_header();
 

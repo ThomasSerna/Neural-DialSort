@@ -528,7 +528,7 @@ int main() {
     // ── System header ──────────────────────────────────────────────────────────
     std::cout
             << "================================================================\n"
-            << "DialSort — Software Benchmark  (Tier 1: CPU)  [v3]\n"
+            << "DialSort - Software Benchmark  (Tier 1: CPU)  [v3]\n"
             << "Paper: DialSort: Non-Comparative Integer Sorting\n"
             << "       via the Self-Indexing Principle\n"
             << "================================================================\n"
